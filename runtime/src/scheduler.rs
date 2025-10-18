@@ -4,12 +4,40 @@ Scheduler - Green Thread Management with May - Edition 2024 compliant
 
 use crate::stack::StackCell;
 use may::coroutine;
-use std::sync::Once;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::sync::{Condvar, Mutex, Once};
 
 static SCHEDULER_INIT: Once = Once::new();
+
+// Strand lifecycle tracking
+// These primitives manage the lifecycle of all spawned strands in the system.
+//
+// Design rationale:
+// - ACTIVE_STRANDS: Lock-free atomic counter for the hot path (spawn/complete)
+//   Every strand increment on spawn, decrement on complete. This is extremely
+//   fast (lock-free atomic ops) and suitable for high-frequency operations.
+//
+// - SHUTDOWN_CONDVAR/MUTEX: Event-driven synchronization for the cold path (shutdown wait)
+//   Used only when waiting for all strands to complete (program shutdown).
+//   Condvar provides event-driven wakeup instead of polling, which is critical
+//   for a systems language - no CPU waste, proper OS-level blocking.
+//
+// Why not polling?
+// While polling with sleep(10ms) works, it's inappropriate for a systems language.
+// Strands can have vastly different lifetimes (microseconds to weeks), and we want
+// zero CPU overhead when waiting for shutdown. Condvar provides proper event-driven
+// wakeup via OS primitives (futex/kevent/etc).
+//
+// Why not track JoinHandles?
+// Strands are like Erlang processes - potentially hundreds of thousands of concurrent
+// entities with independent lifecycles. Storing handles would require global mutable
+// state with synchronization overhead on the hot path. The counter + condvar approach
+// keeps the hot path lock-free while providing proper shutdown synchronization.
 static ACTIVE_STRANDS: AtomicUsize = AtomicUsize::new(0);
+static SHUTDOWN_CONDVAR: Condvar = Condvar::new();
+static SHUTDOWN_MUTEX: Mutex<()> = Mutex::new(());
+
+// Unique strand ID generation
 static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Initialize the scheduler
@@ -29,13 +57,21 @@ pub unsafe extern "C" fn scheduler_init() {
 /// # Safety
 /// Returns the final stack (always null for now since May handles all scheduling).
 /// This function blocks until all spawned strands have completed.
+///
+/// Uses a condition variable for event-driven shutdown synchronization rather than
+/// polling. The mutex is only held during the wait protocol, not during strand
+/// execution, so there's no contention on the hot path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scheduler_run() -> *mut StackCell {
-    // Wait for all active strands to complete
-    // Check every 10ms to avoid busy-waiting while still being responsive
+    let mut guard = SHUTDOWN_MUTEX.lock().unwrap();
+
+    // Wait for all strands to complete
+    // The condition variable will be notified when the last strand exits
     while ACTIVE_STRANDS.load(Ordering::Acquire) > 0 {
-        std::thread::sleep(Duration::from_millis(10));
+        guard = SHUTDOWN_CONDVAR.wait(guard).unwrap();
     }
+
+    // All strands have completed
     std::ptr::null_mut()
 }
 
@@ -93,7 +129,14 @@ pub unsafe extern "C" fn strand_spawn(
             free_stack(final_stack);
 
             // Decrement active strand counter
-            ACTIVE_STRANDS.fetch_sub(1, Ordering::Release);
+            // If this was the last strand, notify anyone waiting for shutdown
+            let prev_count = ACTIVE_STRANDS.fetch_sub(1, Ordering::Release);
+            if prev_count == 1 {
+                // We were the last strand - acquire mutex and signal shutdown
+                // The mutex must be held when calling notify to prevent missed wakeups
+                let _guard = SHUTDOWN_MUTEX.lock().unwrap();
+                SHUTDOWN_CONDVAR.notify_all();
+            }
         });
     }
 
@@ -148,12 +191,16 @@ pub unsafe extern "C" fn yield_strand() {
 ///
 /// # Safety
 /// Always safe to call. Blocks until all spawned strands have completed.
+///
+/// Uses event-driven synchronization via condition variable - no polling overhead.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wait_all_strands() {
-    // Wait for all active strands to complete
-    // Check every 10ms to avoid busy-waiting while still being responsive
+    let mut guard = SHUTDOWN_MUTEX.lock().unwrap();
+
+    // Wait for all strands to complete
+    // The condition variable will be notified when the last strand exits
     while ACTIVE_STRANDS.load(Ordering::Acquire) > 0 {
-        std::thread::sleep(Duration::from_millis(10));
+        guard = SHUTDOWN_CONDVAR.wait(guard).unwrap();
     }
 }
 
