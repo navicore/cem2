@@ -11,16 +11,9 @@ on:
 # This prevents drift between local development and CI.
 
 jobs:
-  ci:
-    name: CI (format, lint, test)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest      # Linux x86_64
-            name: Linux x86_64
-          - os: macos-latest       # macOS ARM64 (M1/M2)
-            name: macOS ARM64
+  ci-linux:
+    name: CI - Linux x86_64
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -35,8 +28,7 @@ jobs:
     - name: Install Just
       uses: extractions/setup-just@v2
 
-    - name: Install LLVM/clang (Ubuntu)
-      if: runner.os == 'Linux'
+    - name: Install LLVM/clang
       run: |
         sudo apt-get update
         sudo apt-get install -y clang
@@ -45,25 +37,66 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        key: linux-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Cache cargo index
       uses: actions/cache@v4
       with:
         path: ~/.cargo/git
-        key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+        key: linux-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Cache cargo build
       uses: actions/cache@v4
       with:
         path: target
-        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+        key: linux-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
-    # This is THE ONLY CI check - everything else is in justfile!
     - name: Run CI checks (just ci)
       run: just ci
 
-    # Verify build artifacts exist (sanity check)
+    - name: Verify build artifacts
+      run: |
+        ls -lh target/release/libcem_runtime.a
+        ls -lh target/release/cem
+
+  ci-macos:
+    name: CI - macOS ARM64
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+
+    - name: Install Just
+      uses: extractions/setup-just@v2
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: macos-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: macos-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: macos-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run CI checks (just ci)
+      run: just ci
+
     - name: Verify build artifacts
       run: |
         ls -lh target/release/libcem_runtime.a
