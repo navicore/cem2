@@ -48,12 +48,13 @@ fmt-check:
 
 # Run all CI checks (same as GitHub Actions!)
 # This is what developers should run before pushing
-ci: fmt-check lint test
+ci: fmt-check lint test build-compiler
     @echo ""
     @echo "✅ All CI checks passed!"
     @echo "   - Code formatting ✓"
     @echo "   - Clippy lints ✓"
     @echo "   - Unit tests ✓"
+    @echo "   - Compiler built ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
 
