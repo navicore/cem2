@@ -1,0 +1,19 @@
+[package]
+name = "cem-compiler"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "cem"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+clap_complete = "4.5"
+
+[lib]
+name = "cemc"
+path = "src/lib.rs"

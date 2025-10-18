@@ -1,0 +1,30 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# LLVM IR output
+*.ll
+*.bc
+*.o
+
+# Compiled binaries
+/examples/*_exe
+/hello
+/hello_io
+/test_*
+!tests/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Runtime artifacts
+libcem_runtime.a

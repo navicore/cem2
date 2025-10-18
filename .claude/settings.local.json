@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/navicore/git/navicore/cem/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

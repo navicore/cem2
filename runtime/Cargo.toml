@@ -1,0 +1,17 @@
+[package]
+name = "cem-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testing
+
+[dependencies]
+# May - Erlang-style green threads / coroutines
+may = "0.3"
+
+# Optional: faster allocator for many small allocations (stack cells)
+# mimalloc = "0.1"
