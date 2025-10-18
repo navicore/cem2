@@ -35,6 +35,12 @@ jobs:
     - name: Install Just
       uses: extractions/setup-just@v2
 
+    - name: Install LLVM/clang (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang
+
     - name: Cache cargo registry
       uses: actions/cache@v4
       with:
