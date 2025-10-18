@@ -27,12 +27,12 @@ install:
     cargo install --path compiler
 
 # Run all Rust unit tests
-test:
+test: build-runtime
     @echo "Running Rust unit tests..."
     cargo test --workspace --all-targets
 
 # Run clippy on all workspace members
-lint:
+lint: build-runtime
     @echo "Running clippy..."
     cargo clippy --workspace --all-targets -- -D warnings
 
