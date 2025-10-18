@@ -10,7 +10,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Ed Sweeney <ed@onextent.com>"]
 license = "MIT"
-repository = "https://github.com/navicore/cem"
+repository = "https://github.com/navicore/cem2"
 
 [workspace.dependencies]
 # Shared dependencies
