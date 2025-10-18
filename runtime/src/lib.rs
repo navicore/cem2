@@ -1,35 +1,25 @@
 /*!
 Cem Runtime - Memory-safe runtime using May coroutines
 
-This runtime provides:
-- Stack operations (dup, swap, drop, etc.)
-- Erlang-style green threads via May coroutines
-- Pattern matching on sum types
-- Async I/O with automatic yielding
-
-All functions are exposed via C FFI for LLVM IR to call.
+Edition 2024 compliant with proper unsafe annotations.
 */
 
-pub mod stack;
 pub mod io;
-pub mod scheduler;
 pub mod pattern;
+pub mod scheduler;
+pub mod stack;
 
 // Re-export main types
-pub use stack::{StackCell, CellType};
-
-// Initialize May runtime when library loads
-// May automatically sets up its work-stealing scheduler
-use std::sync::Once;
-static INIT: Once = Once::new();
+pub use stack::{CellType, StackCell};
 
 /// Initialize the May runtime (called automatically)
-#[no_mangle]
-pub extern "C" fn cem_runtime_init() {
-    INIT.call_once(|| {
-        // May runtime initializes automatically
-        // No explicit setup needed unlike your C scheduler!
-    });
+///
+/// # Safety
+/// This function is safe to call multiple times (idempotent).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cem_runtime_init() {
+    // May runtime initializes automatically
+    // This is a no-op but provided for explicit initialization if needed
 }
 
 #[cfg(test)]
@@ -38,6 +28,8 @@ mod tests {
 
     #[test]
     fn test_runtime_init() {
-        cem_runtime_init();
+        unsafe {
+            cem_runtime_init();
+        }
     }
 }

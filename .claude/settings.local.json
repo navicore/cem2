@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Users/navicore/git/navicore/cem/**)"
+      "Read(//Users/navicore/git/navicore/cem/**)",
+      "Bash(just fmt)",
+      "Bash(just ci)",
+      "Bash(find runtime/src compiler/src -name \"*.rs\" -exec sed -i '' )",
+      "Bash({} ;)"
     ],
     "deny": [],
     "ask": []
