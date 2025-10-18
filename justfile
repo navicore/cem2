@@ -91,3 +91,4 @@ verify-workspace:
     @echo "Verifying workspace configuration..."
     cargo tree --workspace
     @echo "✅ Workspace verified"
+
