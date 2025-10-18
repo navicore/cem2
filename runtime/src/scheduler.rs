@@ -5,8 +5,12 @@ Scheduler - Green Thread Management with May - Edition 2024 compliant
 use crate::stack::StackCell;
 use may::coroutine;
 use std::sync::Once;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 
 static SCHEDULER_INIT: Once = Once::new();
+static ACTIVE_STRANDS: AtomicUsize = AtomicUsize::new(0);
+static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Initialize the scheduler
 ///
@@ -24,17 +28,14 @@ pub unsafe extern "C" fn scheduler_init() {
 ///
 /// # Safety
 /// Returns the final stack (always null for now since May handles all scheduling).
-///
-/// # Known Limitations
-/// Currently uses a fixed 100ms sleep as a temporary workaround.
-/// This assumes all spawned coroutines complete within 100ms.
-/// TODO: Replace with proper synchronization using May's join handles or WaitGroup pattern.
+/// This function blocks until all spawned strands have completed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scheduler_run() -> *mut StackCell {
-    // FIXME: This is a temporary workaround. May's scheduler runs automatically,
-    // but we don't currently track spawned coroutines to wait for them properly.
-    // This sleep gives coroutines time to complete, but is not guaranteed.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Wait for all active strands to complete
+    // Check every 10ms to avoid busy-waiting while still being responsive
+    while ACTIVE_STRANDS.load(Ordering::Acquire) > 0 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
     std::ptr::null_mut()
 }
 
@@ -57,25 +58,26 @@ pub unsafe extern "C" fn scheduler_shutdown() {
 ///   - Has a 'static lifetime or lives longer than the coroutine
 ///   - Is safe to access from the spawned thread
 /// - The caller transfers ownership of `initial_stack` to the coroutine
-/// - Returns strand ID (always 0 for now; May doesn't expose coroutine IDs)
+/// - Returns a unique strand ID (positive integer)
 ///
-/// # Memory Ownership
-/// The spawned coroutine takes ownership of `initial_stack`. The final stack
-/// returned by `entry` is currently leaked. This is a known limitation.
-/// TODO: Track and properly cleanup final stacks.
+/// # Memory Management
+/// The spawned coroutine takes ownership of `initial_stack` and will automatically
+/// free the final stack returned by `entry` upon completion.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strand_spawn(
     entry: extern "C" fn(*mut StackCell) -> *mut StackCell,
     initial_stack: *mut StackCell,
 ) -> i64 {
-    // Wrap types to satisfy Send bounds for coroutine::spawn
-    struct SendableFn(extern "C" fn(*mut StackCell) -> *mut StackCell);
+    // Generate unique strand ID
+    let strand_id = NEXT_STRAND_ID.fetch_add(1, Ordering::Relaxed);
 
-    // SAFETY: We assert Send for FFI function pointer where the caller guarantees thread safety
-    unsafe impl Send for SendableFn {}
+    // Increment active strand counter
+    ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
 
-    let entry_fn = SendableFn(entry);
-    // Convert pointer to usize (which is Send) to avoid provenance issues with raw pointers
+    // Function pointers are already Send, no wrapper needed
+    let entry_fn = entry;
+
+    // Convert pointer to usize (which is Send)
     // This is necessary because *mut T is !Send, but the caller guarantees thread safety
     let stack_addr = initial_stack as usize;
 
@@ -83,12 +85,19 @@ pub unsafe extern "C" fn strand_spawn(
         coroutine::spawn(move || {
             // Reconstruct pointer from address
             let stack_ptr = stack_addr as *mut StackCell;
-            // FIXME: Final stack is leaked. We should track it for cleanup.
-            let _final_stack = (entry_fn.0)(stack_ptr);
+
+            // Execute the entry function
+            let final_stack = entry_fn(stack_ptr);
+
+            // Clean up the final stack to prevent memory leak
+            free_stack(final_stack);
+
+            // Decrement active strand counter
+            ACTIVE_STRANDS.fetch_sub(1, Ordering::Release);
         });
     }
 
-    0 // Return strand ID (0 for now, May doesn't expose IDs)
+    strand_id as i64
 }
 
 /// Free a stack allocated by the runtime
@@ -135,18 +144,17 @@ pub unsafe extern "C" fn yield_strand() {
     coroutine::yield_now();
 }
 
-/// Wait for all strands to complete (temporary implementation)
+/// Wait for all strands to complete
 ///
 /// # Safety
-/// Always safe to call.
-///
-/// # Known Limitations
-/// Uses a fixed 100ms sleep. Same limitations as scheduler_run().
-/// TODO: Replace with proper synchronization.
+/// Always safe to call. Blocks until all spawned strands have completed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wait_all_strands() {
-    // FIXME: Same issue as scheduler_run - needs proper synchronization
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Wait for all active strands to complete
+    // Check every 10ms to avoid busy-waiting while still being responsive
+    while ACTIVE_STRANDS.load(Ordering::Acquire) > 0 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[cfg(test)]
@@ -227,6 +235,71 @@ mod tests {
             scheduler_init();
             scheduler_shutdown();
             // Should not crash
+        }
+    }
+
+    #[test]
+    fn test_many_strands_stress() {
+        unsafe {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+            extern "C" fn increment(_stack: *mut StackCell) -> *mut StackCell {
+                COUNTER.fetch_add(1, Ordering::SeqCst);
+                std::ptr::null_mut()
+            }
+
+            // Reset counter for this test
+            COUNTER.store(0, Ordering::SeqCst);
+
+            // Spawn many strands to stress test synchronization
+            for _ in 0..1000 {
+                strand_spawn(increment, std::ptr::null_mut());
+            }
+
+            // Wait for all to complete
+            wait_all_strands();
+
+            // Verify all strands executed
+            assert_eq!(COUNTER.load(Ordering::SeqCst), 1000);
+        }
+    }
+
+    #[test]
+    fn test_strand_ids_are_unique() {
+        unsafe {
+            use std::collections::HashSet;
+            use std::sync::Mutex;
+
+            static IDS: Mutex<Option<HashSet<i64>>> = Mutex::new(None);
+
+            // Initialize the set
+            *IDS.lock().unwrap() = Some(HashSet::new());
+
+            extern "C" fn collect_id(_stack: *mut StackCell) -> *mut StackCell {
+                // Note: We can't get the ID from inside the coroutine easily,
+                // so this test just verifies they complete
+                std::ptr::null_mut()
+            }
+
+            // Spawn strands and collect their IDs
+            let mut ids = Vec::new();
+            for _ in 0..100 {
+                let id = strand_spawn(collect_id, std::ptr::null_mut());
+                ids.push(id);
+            }
+
+            // Wait for completion
+            wait_all_strands();
+
+            // Verify all IDs are unique
+            let unique_ids: HashSet<_> = ids.iter().collect();
+            assert_eq!(unique_ids.len(), 100, "All strand IDs should be unique");
+
+            // Verify all IDs are positive
+            assert!(
+                ids.iter().all(|&id| id > 0),
+                "All strand IDs should be positive"
+            );
         }
     }
 }
