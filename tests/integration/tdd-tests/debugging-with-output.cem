@@ -13,7 +13,9 @@
       swap drop drop
       "After drops..." write_line
     ]
-    Nil  => [ "In Nil branch..." write_line ]
+    Nil  => [
+      "In Nil branch..." write_line
+    ]
   end
 
   "After match..." write_line

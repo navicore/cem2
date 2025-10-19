@@ -146,10 +146,13 @@ impl CodeGen {
             "<" | ">" | "<=" | ">=" | "=" | "!=" |
             // String operations
             "string-length" | "string-concat" | "string-equal" |
+            "string_length" | "string_concat" | "string_equal" |  // underscore variants
             // Conversions
             "int-to-string" | "bool-to-string" |
+            "int_to_string" | "bool_to_string" |  // underscore variants
             // I/O (these are async but don't need musttail)
-            "write-line" | "read-line"
+            "write-line" | "read-line" |
+            "write_line" | "read_line" // underscore variants
         )
     }
 
@@ -634,7 +637,9 @@ impl CodeGen {
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
         // Compile all expressions in the word body
-        let (final_stack, _ends_with_musttail) = self.compile_expr_sequence(&word.body, "stack")?;
+        // Function bodies are always in tail position (can use tail-call optimization)
+        let (final_stack, _ends_with_musttail) =
+            self.compile_expr_sequence(&word.body, "stack", true)?;
 
         // Check if all paths have already terminated (match/if with all branches returning)
         // This is the OPPOSITE of check_all_paths_returned:
@@ -758,9 +763,12 @@ impl CodeGen {
         &mut self,
         quot: &Expr,
         initial_stack: &str,
+        in_tail_position: bool,
     ) -> CodegenResult<(String, bool)> {
         match quot {
-            Expr::Quotation(exprs, _loc) => self.compile_expr_sequence(exprs, initial_stack),
+            Expr::Quotation(exprs, _loc) => {
+                self.compile_expr_sequence(exprs, initial_stack, in_tail_position)
+            }
             _ => Err(CodegenError::InternalError(
                 "If branches must be quotations".to_string(),
             )),
@@ -776,10 +784,15 @@ impl CodeGen {
     /// If the sequence ends with a Match/If where all branches return, ends_with_musttail
     /// is false but all code paths have already terminated. The caller should check
     /// check_all_paths_returned() to determine this case.
+    ///
+    /// The in_tail_position parameter indicates whether this sequence itself is in tail position.
+    /// If false, expressions within the sequence will not use tail-call optimization even if
+    /// they are the last expression in the sequence.
     fn compile_expr_sequence(
         &mut self,
         exprs: &[Expr],
         initial_stack: &str,
+        in_tail_position: bool,
     ) -> CodegenResult<(String, bool)> {
         let mut stack_var = initial_stack.to_string();
         let len = exprs.len();
@@ -792,7 +805,9 @@ impl CodeGen {
         let mut ends_with_musttail = false;
 
         for (i, expr) in exprs.iter().enumerate() {
-            let is_tail = i == len - 1; // Track tail position in branch
+            // Only the last expression in a sequence can be in tail position,
+            // and only if the sequence itself is in tail position
+            let is_tail = in_tail_position && (i == len - 1);
             stack_var = self.compile_expr_with_context(expr, &stack_var, is_tail)?;
 
             // Check if the last expression is a WordCall in tail position
@@ -835,13 +850,18 @@ impl CodeGen {
                 .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                 Ok(result)
             }
-            // Otherwise, delegate to normal compile_expr
-            _ => self.compile_expr(expr, stack),
+            // Otherwise, delegate to normal compile_expr with tail position context
+            _ => self.compile_expr(expr, stack, in_tail_position),
         }
     }
 
     /// Compile a single expression, returning the new stack variable name
-    fn compile_expr(&mut self, expr: &Expr, stack: &str) -> CodegenResult<String> {
+    fn compile_expr(
+        &mut self,
+        expr: &Expr,
+        stack: &str,
+        in_tail_position: bool,
+    ) -> CodegenResult<String> {
         match expr {
             Expr::IntLit(n, loc) => {
                 let result = self.fresh_temp();
@@ -1403,8 +1423,9 @@ impl CodeGen {
                         field_copies[0].clone()
                     };
 
+                    // Match branches inherit the tail position of the match expression itself
                     let (branch_stack, ends_with_musttail) =
-                        self.compile_expr_sequence(&branch.body, &initial_stack)?;
+                        self.compile_expr_sequence(&branch.body, &initial_stack, in_tail_position)?;
 
                     let predecessor = self.current_block.clone();
 
@@ -1479,9 +1500,26 @@ impl CodeGen {
 
                     Ok(result)
                 } else {
-                    // All branches ended with musttail and return - no merge point needed
-                    // This is actually unreachable code after the match, so return a dummy value
-                    Ok(rest_var) // Won't be used since all branches returned
+                    // All branches ended with musttail and return
+                    // BUT: There may be continuation code after the match expression in the source.
+                    // We need a continuation block for that code, even though it's unreachable.
+                    // This handles cases like:
+                    //   match
+                    //     Cons => [ ... tailcall ]
+                    //     Nil => [ ... tailcall ]
+                    //   end
+                    //   "After match" write_line  # <- continuation code
+                    //
+                    // Without this block, continuation code would be emitted in the default case
+                    // after the unreachable instruction, causing LLVM IR errors.
+                    let continuation_label = format!("match_continuation_{}", match_id);
+                    writeln!(&mut self.output, "{}:", continuation_label)
+                        .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                    self.current_block = continuation_label;
+
+                    // Return rest_var as the stack value for continuation code
+                    // (even though this code is unreachable, it must be well-formed)
+                    Ok(rest_var)
                 }
             }
 
@@ -1555,8 +1593,9 @@ impl CodeGen {
                 writeln!(&mut self.output, "{}:", then_label)
                     .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                 self.current_block = then_label.clone();
+                // If branches inherit the tail position of the if expression itself
                 let (then_stack, then_is_musttail) =
-                    self.compile_branch_quotation(then_branch, &rest_var)?;
+                    self.compile_branch_quotation(then_branch, &rest_var, in_tail_position)?;
 
                 // Capture the actual block that will branch to merge (after any nested ifs)
                 let then_predecessor = self.current_block.clone();
@@ -1575,7 +1614,7 @@ impl CodeGen {
                     .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                 self.current_block = else_label.clone();
                 let (else_stack, else_is_musttail) =
-                    self.compile_branch_quotation(else_branch, &rest_var)?;
+                    self.compile_branch_quotation(else_branch, &rest_var, in_tail_position)?;
 
                 // Capture the actual block that will branch to merge (after any nested ifs)
                 let else_predecessor = self.current_block.clone();
@@ -1648,6 +1687,7 @@ impl Default for CodeGen {
 mod tests {
     use super::*;
     use crate::ast::types::{Effect, StackType, Type};
+    use crate::ast::{MatchBranch, Pattern, TypeDef, Variant, WordDef};
 
     #[test]
     fn test_codegen_simple() {
@@ -1788,6 +1828,155 @@ mod tests {
         assert!(
             ir.contains("call ptr @call_quotation"),
             "Should call call_quotation"
+        );
+    }
+
+    #[test]
+    fn test_continuation_code_after_match() {
+        // Regression test for bug where code after match expressions
+        // was either placed in unreachable blocks (causing LLVM errors)
+        // or never executed (due to incorrect tail-call optimization)
+        let mut codegen = CodeGen::new();
+
+        // Define List type
+        let list_type = TypeDef {
+            name: "List".to_string(),
+            type_params: vec!["T".to_string()],
+            variants: vec![
+                Variant {
+                    name: "Cons".to_string(),
+                    fields: vec![
+                        Type::Var("T".to_string()),
+                        Type::Named {
+                            name: "List".to_string(),
+                            args: vec![Type::Var("T".to_string())],
+                        },
+                    ],
+                },
+                Variant {
+                    name: "Nil".to_string(),
+                    fields: vec![],
+                },
+            ],
+        };
+
+        // Word that has code after a match expression:
+        // : test ( -- Int )
+        //   Nil
+        //   match
+        //     Cons => [ drop drop 0 ]
+        //     Nil => [ 0 ]
+        //   end
+        //   42 + ;  # <- continuation code that must execute
+        let word = WordDef {
+            name: "test".to_string(),
+            effect: Effect {
+                inputs: StackType::Empty,
+                outputs: StackType::Cons {
+                    rest: Box::new(StackType::Empty),
+                    top: Type::Int,
+                },
+            },
+            body: vec![
+                // Create Nil
+                Expr::WordCall("Nil".to_string(), SourceLoc::unknown()),
+                // Match on it (both branches push 0)
+                Expr::Match {
+                    branches: vec![
+                        MatchBranch {
+                            pattern: Pattern::Variant {
+                                name: "Cons".to_string(),
+                            },
+                            body: vec![
+                                Expr::WordCall("drop".to_string(), SourceLoc::unknown()),
+                                Expr::WordCall("drop".to_string(), SourceLoc::unknown()),
+                                Expr::IntLit(0, SourceLoc::unknown()),
+                            ],
+                        },
+                        MatchBranch {
+                            pattern: Pattern::Variant {
+                                name: "Nil".to_string(),
+                            },
+                            body: vec![Expr::IntLit(0, SourceLoc::unknown())],
+                        },
+                    ],
+                    loc: SourceLoc::unknown(),
+                },
+                // CONTINUATION CODE - this must be reachable and properly compiled
+                Expr::IntLit(42, SourceLoc::unknown()),
+                Expr::WordCall("+".to_string(), SourceLoc::unknown()),
+            ],
+            loc: SourceLoc::unknown(),
+        };
+
+        let program = Program {
+            type_defs: vec![list_type],
+            word_defs: vec![word],
+        };
+
+        let ir = codegen.compile_program(&program).unwrap();
+
+        // 1. Verify IR is well-formed (no LLVM errors)
+        //    The bug caused: "error: instruction expected to be numbered '%43' or greater"
+        //    If this test compiles without panic, IR is syntactically valid
+
+        // 2. Verify match generates proper control flow
+        assert!(
+            ir.contains("switch i32"),
+            "Match should generate switch statement"
+        );
+
+        // 3. Verify continuation code exists in IR
+        //    The bug caused this code to either be in unreachable blocks or use wrong tail calls
+        assert!(
+            ir.contains("call ptr @push_int(ptr %"),
+            "Continuation code (push 42) should be in IR"
+        );
+
+        // 4. Verify continuation code is NOT in the unreachable default block
+        //    Extract the match_default block
+        if let Some(default_start) = ir.find("match_default_")
+            && let Some(default_block) = ir[default_start..].split('}').next()
+        {
+            // After "unreachable", there should be NO push_int
+            if let Some(unreachable_pos) = default_block.find("unreachable") {
+                let after_unreachable = &default_block[unreachable_pos..];
+                assert!(
+                    !after_unreachable.contains("push_int"),
+                    "Continuation code must NOT appear after unreachable in default block"
+                );
+            }
+        }
+
+        // 5. Verify branches don't use musttail (since match is not in tail position)
+        //    The bug caused branches to always use musttail, making continuation unreachable
+        let match_section = if let Some(start) = ir.find("switch i32") {
+            if let Some(end) = ir[start..].find("match_continuation_") {
+                &ir[start..start + end]
+            } else if let Some(end) = ir[start..].find("match_merge_") {
+                &ir[start..start + end]
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
+
+        // In the match branches section, we should NOT see musttail calls
+        // (Because the match is not in tail position - there's code after it)
+        let musttail_count = match_section.matches("musttail").count();
+        assert_eq!(
+            musttail_count, 0,
+            "Match branches should not use musttail when match is not in tail position"
+        );
+
+        // 6. Verify there's either a merge block or continuation block
+        //    (proper control flow for non-tail match)
+        let has_merge = ir.contains("match_merge_");
+        let has_continuation = ir.contains("match_continuation_");
+        assert!(
+            has_merge || has_continuation,
+            "Non-tail match should have merge or continuation block"
         );
     }
 }
