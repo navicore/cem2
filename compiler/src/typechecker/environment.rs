@@ -289,6 +289,25 @@ impl Environment {
             Effect::from_vecs(vec![Type::Bool], vec![Type::String]),
         );
 
+        // String operations
+        // string_length: ( String -- Int )
+        self.add_word(
+            "string_length".to_string(),
+            Effect::from_vecs(vec![Type::String], vec![Type::Int]),
+        );
+
+        // string_concat: ( String String -- String )
+        self.add_word(
+            "string_concat".to_string(),
+            Effect::from_vecs(vec![Type::String, Type::String], vec![Type::String]),
+        );
+
+        // string_equal: ( String String -- Bool )
+        self.add_word(
+            "string_equal".to_string(),
+            Effect::from_vecs(vec![Type::String, Type::String], vec![Type::Bool]),
+        );
+
         // exit: ( Int -- )
         // Note: This function never returns, but we model it as consuming Int and producing empty stack
         self.add_word(

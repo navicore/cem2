@@ -2,7 +2,9 @@
 String Operations - C-compatible string manipulation
 */
 
-use crate::stack::{StackCell, push_bool, push_int, push_string};
+#[cfg(test)]
+use crate::stack::push_string;
+use crate::stack::{CellDataUnion, CellType, StackCell, push_bool, push_int};
 use std::ffi::CString;
 
 /// Get the length of a string
@@ -58,22 +60,43 @@ pub unsafe extern "C" fn string_concat(stack: *mut StackCell) -> *mut StackCell 
 
     // Convert C strings to Rust strings
     let s1 = unsafe {
-        std::ffi::CStr::from_ptr(str1_ptr)
-            .to_str()
-            .expect("string_concat: first string contains invalid UTF-8")
+        match std::ffi::CStr::from_ptr(str1_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                crate::runtime_error(c"string_concat: first string contains invalid UTF-8".as_ptr())
+            }
+        }
     };
     let s2 = unsafe {
-        std::ffi::CStr::from_ptr(str2_ptr)
-            .to_str()
-            .expect("string_concat: second string contains invalid UTF-8")
+        match std::ffi::CStr::from_ptr(str2_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => crate::runtime_error(
+                c"string_concat: second string contains invalid UTF-8".as_ptr(),
+            ),
+        }
     };
 
     // Concatenate
     let result = format!("{}{}", s1, s2);
-    let c_result = CString::new(result).expect("string_concat: result contains null byte");
+    let c_result = CString::new(result).unwrap_or_else(|_| unsafe {
+        crate::runtime_error(c"string_concat: result contains null byte".as_ptr())
+    });
+
+    // Transfer ownership to avoid double allocation
+    let result_ptr = c_result.into_raw();
+
+    // Create cell directly instead of using push_string to avoid extra copy
+    let cell = Box::new(StackCell {
+        cell_type: CellType::String,
+        _padding: 0,
+        data: CellDataUnion {
+            string_ptr: result_ptr,
+        },
+        next: std::ptr::null_mut(),
+    });
 
     // Strings are freed by cell Drop
-    unsafe { push_string(rest, c_result.as_ptr()) }
+    unsafe { StackCell::push(rest, cell) }
 }
 
 /// Compare two strings for equality
@@ -101,14 +124,20 @@ pub unsafe extern "C" fn string_equal(stack: *mut StackCell) -> *mut StackCell {
 
     // Convert C strings to Rust strings and compare
     let s1 = unsafe {
-        std::ffi::CStr::from_ptr(str1_ptr)
-            .to_str()
-            .expect("string_equal: first string contains invalid UTF-8")
+        match std::ffi::CStr::from_ptr(str1_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                crate::runtime_error(c"string_equal: first string contains invalid UTF-8".as_ptr())
+            }
+        }
     };
     let s2 = unsafe {
-        std::ffi::CStr::from_ptr(str2_ptr)
-            .to_str()
-            .expect("string_equal: second string contains invalid UTF-8")
+        match std::ffi::CStr::from_ptr(str2_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                crate::runtime_error(c"string_equal: second string contains invalid UTF-8".as_ptr())
+            }
+        }
     };
 
     let result = s1 == s2;
