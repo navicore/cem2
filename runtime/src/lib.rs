@@ -4,6 +4,7 @@ Cem Runtime - Memory-safe runtime using May coroutines
 Edition 2024 compliant with proper unsafe annotations.
 */
 
+pub mod conversions;
 pub mod io;
 pub mod pattern;
 pub mod scheduler;

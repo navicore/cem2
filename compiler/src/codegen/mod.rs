@@ -114,18 +114,18 @@ impl CodeGen {
     /// Also maps hyphenated Cem names to underscore C names
     fn map_operator_to_function(name: &str) -> String {
         match name {
-            // Arithmetic operators
+            // Arithmetic operators (match runtime function names)
             "+" => "add".to_string(),
             "-" => "subtract".to_string(),
             "*" => "multiply".to_string(),
-            "/" => "divide_op".to_string(),
-            // Comparison operators
-            "<" => "int_less".to_string(),
-            ">" => "int_greater".to_string(),
-            "<=" => "int_less_equal".to_string(),
-            ">=" => "int_greater_equal".to_string(),
-            "=" => "int_equal".to_string(),
-            "!=" => "int_not_equal".to_string(),
+            "/" => "divide".to_string(),
+            // Comparison operators (match runtime function names)
+            "<" => "lt".to_string(),
+            ">" => "gt".to_string(),
+            "<=" => "le".to_string(),
+            ">=" => "ge".to_string(),
+            "=" => "eq".to_string(),
+            "!=" => "ne".to_string(),
             // Special functions
             "exit" => "exit_op".to_string(), // Avoid conflict with stdlib exit()
             // For hyphenated names, replace hyphens with underscores
@@ -234,20 +234,13 @@ impl CodeGen {
         }
 
         // Arithmetic (ptr -> ptr)
-        for func in &["add", "subtract", "multiply", "divide_op"] {
+        for func in &["add", "subtract", "multiply", "divide"] {
             writeln!(&mut self.output, "declare ptr @{}(ptr)", func)
                 .map_err(|e| CodegenError::InternalError(e.to_string()))?;
         }
 
         // Comparisons (ptr -> ptr)
-        for func in &[
-            "int_less",
-            "int_greater",
-            "int_less_equal",
-            "int_greater_equal",
-            "int_equal",
-            "int_not_equal",
-        ] {
+        for func in &["lt", "gt", "le", "ge", "eq", "ne"] {
             writeln!(&mut self.output, "declare ptr @{}(ptr)", func)
                 .map_err(|e| CodegenError::InternalError(e.to_string()))?;
         }
