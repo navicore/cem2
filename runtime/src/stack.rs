@@ -26,6 +26,7 @@ pub enum CellType {
     Bool = 1,
     String = 2,
     Variant = 3,
+    Quotation = 4,
 }
 
 /// Variant data - matches C layout: { uint32_t tag; uint32_t padding; void* data; }
@@ -205,6 +206,16 @@ impl StackCell {
                     next: ptr::null_mut(),
                 }
             }
+            CellType::Quotation => {
+                // Quotations are function pointers - just copy the pointer
+                let quotation_ptr = unsafe { cell.data.quotation_ptr };
+                StackCell {
+                    cell_type: CellType::Quotation,
+                    _padding: 0,
+                    data: CellDataUnion { quotation_ptr },
+                    next: ptr::null_mut(),
+                }
+            }
             CellType::Variant => {
                 // Deep copy the variant and its field data (recursively)
                 // For multi-field variants, data points to a chain of field cells
@@ -315,6 +326,59 @@ pub unsafe extern "C" fn push_string(stack: *mut StackCell, s: *const i8) -> *mu
         next: ptr::null_mut(),
     });
     unsafe { StackCell::push(stack, cell) }
+}
+
+/// Push a quotation (function pointer) onto the stack
+///
+/// # Safety
+/// Caller must ensure stack pointer is valid or null and func_ptr is a valid function pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn push_quotation(
+    stack: *mut StackCell,
+    func_ptr: *mut (),
+) -> *mut StackCell {
+    let cell = Box::new(StackCell {
+        cell_type: CellType::Quotation,
+        _padding: 0,
+        data: CellDataUnion {
+            quotation_ptr: func_ptr,
+        },
+        next: ptr::null_mut(),
+    });
+    unsafe { StackCell::push(stack, cell) }
+}
+
+/// Call a quotation from the top of the stack
+///
+/// Stack effect: ( stack quotation -- stack' )
+/// where quotation is a function pointer of type: fn(*mut StackCell) -> *mut StackCell
+///
+/// # Safety
+/// Caller must ensure:
+/// - Stack is not empty
+/// - Top of stack contains a quotation (function pointer)
+/// - The function pointer is valid and has the correct signature
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn call_quotation(stack: *mut StackCell) -> *mut StackCell {
+    assert!(!stack.is_null(), "call_quotation: stack is empty");
+
+    unsafe {
+        // Pop the quotation from the stack
+        let (rest_stack, quot_cell) = StackCell::pop(stack);
+
+        // Verify it's a quotation
+        assert!(
+            quot_cell.cell_type == CellType::Quotation,
+            "call_quotation: top of stack is not a quotation"
+        );
+
+        // Extract the function pointer
+        let func_ptr = quot_cell.data.quotation_ptr;
+
+        // Cast to the correct function type: fn(*mut StackCell) -> *mut StackCell
+        let func: fn(*mut StackCell) -> *mut StackCell = std::mem::transmute(func_ptr);
+        func(rest_stack)
+    }
 }
 
 /// # Safety

@@ -1,0 +1,13 @@
+# Simplest possible map test
+: double ( Int -- Int )
+  2 * ;
+
+: main ( -- )
+  # Create single-element list [5]
+  Nil 5 swap Cons
+
+  # Map double -> [10]
+  [ double ] list-map
+
+  # Print result
+  list-head int-to-string write_line ;

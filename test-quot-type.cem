@@ -1,0 +1,7 @@
+# Test quotation type parsing
+: test-fn ( [Int -- Int] -- Int )
+  5 swap call ;
+
+: main ( -- )
+  [ 1 + ] test-fn
+  int-to-string write_line ;

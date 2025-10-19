@@ -119,3 +119,93 @@ type Option(T)
     ]
     Nil => [ ]              # ( list2 ) - return list2
   end ;
+
+
+
+# ==============================================================================
+# Quotation Operations
+# ==============================================================================
+
+# call: Invoke a quotation (alias for call_quotation)
+# ( [A -- B] -- )
+: call ( [A -- B] -- )
+  call_quotation ;
+
+# ==============================================================================
+# Higher-Order List Operations
+# ==============================================================================
+
+# list-map: Transform each element of a list using a function
+# ( List(T) [T -- U] -- List(U) )
+: list-map ( List(T) [T -- U] -- List(U) )
+  Nil swap          # ( list f Nil ) - empty accumulator
+  rot               # ( f acc list )
+  match
+    Cons => [       # ( f acc head tail )
+      rot rot       # ( acc head f tail )
+      swap over     # ( acc head tail f f )
+      rot rot       # ( acc f tail f head )
+      swap call     # ( acc f tail result )
+      rot swap      # ( f tail acc result )
+      swap Cons     # ( f tail result::acc )
+      list-map      # Recurse
+    ]
+    Nil => [        # ( f acc )
+      swap drop     # ( acc ) - drop function
+      list-reverse  # Reverse to restore order
+    ]
+  end ;
+
+# list-filter: Select elements matching a predicate
+# ( List(T) [T -- Bool] -- List(T) )
+: list-filter ( List(T) [T -- Bool] -- List(T) )
+  Nil swap          # ( list pred Nil ) - empty accumulator
+  rot               # ( pred acc list )
+  match
+    Cons => [       # ( pred acc head tail )
+      rot rot       # ( acc head pred tail )
+      swap over     # ( acc head tail pred pred )
+      rot rot       # ( acc pred tail pred head )
+      swap dup      # ( acc pred tail head head pred )
+      rot call      # ( acc pred tail head keep? )
+      if
+        [ # Keep this element  - ( acc pred tail head )
+          rot swap  # ( pred tail acc head )
+          swap Cons # ( pred tail head::acc )
+        ]
+        [ # Skip this element
+          drop      # ( acc pred tail )
+          rot       # ( pred tail acc )
+        ]
+      list-filter   # Recurse
+    ]
+    Nil => [        # ( pred acc )
+      swap drop     # ( acc ) - drop predicate
+      list-reverse  # Reverse to restore order
+    ]
+  end ;
+
+# list-fold-left: Fold list from left to right
+# Example: [1,2,3] 0 [+] -> ((0+1)+2)+3 = 6
+# ( List(T) U [U T -- U] -- U )
+: list-fold-left ( List(T) U [U T -- U] -- U )
+  rot               # ( acc f list )
+  match
+    Cons => [       # ( acc f head tail )
+      swap rot      # ( acc head f tail )
+      swap rot      # ( acc f head tail )
+      rot rot       # ( f head acc tail )
+      swap over     # ( f head tail acc f )
+      rot rot       # ( f acc f head tail )
+      swap call     # ( f acc tail new_acc )
+      swap          # ( f new_acc acc tail )
+      drop          # ( f new_acc tail )
+      swap          # ( f tail new_acc )
+      rot           # ( tail new_acc f )
+      swap          # ( tail f new_acc )
+      list-fold-left # Recurse
+    ]
+    Nil => [        # ( acc f )
+      drop          # ( acc ) - drop function
+    ]
+  end ;
