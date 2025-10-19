@@ -92,10 +92,11 @@ pub unsafe extern "C" fn exit_op(stack: *mut StackCell) -> ! {
         .expect("exit_op: expected integer exit code on stack");
 
     // Validate exit code is in valid range (0-255 for Unix compatibility)
-    if exit_code < 0 || exit_code > 255 {
-        unsafe {
-            crate::runtime_error(c"exit_op: exit code must be in range 0-255".as_ptr())
-        }
+    if !(0..=255).contains(&exit_code) {
+        // unsafe {
+        //     crate::runtime_error(c"exit_op: exit code must be in range 0-255".as_ptr())
+        // }
+        unsafe { crate::runtime_error(c"exit_op: exit code must be in range 0-255".as_ptr()) }
     }
 
     std::process::exit(exit_code as i32);
