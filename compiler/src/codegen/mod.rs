@@ -1039,13 +1039,18 @@ impl CodeGen {
                                     writeln!(
                                         &mut self.output,
                                         "  store ptr %{}, ptr %{}",
-                                        field_cells[i + 1], next_ptr
+                                        field_cells[i + 1],
+                                        next_ptr
                                     )
                                     .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                                 } else {
                                     // Last field gets null
-                                    writeln!(&mut self.output, "  store ptr null, ptr %{}", next_ptr)
-                                        .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                                    writeln!(
+                                        &mut self.output,
+                                        "  store ptr null, ptr %{}",
+                                        next_ptr
+                                    )
+                                    .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                                 }
                             }
 
