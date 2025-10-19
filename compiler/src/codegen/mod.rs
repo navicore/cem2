@@ -164,7 +164,14 @@ impl CodeGen {
         // Build variant tag map and field count map from type definitions
         // Each variant gets a u32 tag corresponding to its index in the type's variant list
         for typedef in &program.type_defs {
+            eprintln!("DEBUG: Processing type {}", typedef.name);
             for (idx, variant) in typedef.variants.iter().enumerate() {
+                eprintln!(
+                    "  Variant {}: {} fields ({:?})",
+                    variant.name,
+                    variant.fields.len(),
+                    variant.fields
+                );
                 self.variant_tags.insert(variant.name.clone(), idx as u32);
                 self.variant_field_counts
                     .insert(variant.name.clone(), variant.fields.len());

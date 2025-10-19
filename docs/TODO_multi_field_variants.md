@@ -73,14 +73,31 @@ Variant Cons: 2 fields
 
 ### 4. Fix the Bug
 
-**Hypothesis 1: Prelude vs User Type Collision**
+**Hypothesis 1: Prelude vs User Type Collision** ⭐ MOST LIKELY
 - Both stdlib/prelude.cem and test files declare `type List`
-- Maybe we're registering it twice, causing confusion?
+- Compiler auto-includes prelude (main.rs:78-88), then parses user file
+- **Code review insight**: This likely causes double registration!
+  - First pass: Prelude defines `List(T)` with `Cons(T, List(T))` → 2 fields
+  - Second pass: User file defines `List(T)` again → might overwrite or corrupt
+
+**Evidence from review**:
+- Registration code at codegen/mod.rs:169-170 looks correct
+- No duplicate detection in registration loop
+- String concatenation creates combined source, both definitions present
 
 **Test**: Try test_cons.cem WITHOUT prelude being auto-included
 ```rust
 // Temporarily comment out in compiler/src/main.rs:78-88
 // let prelude = fs::read_to_string(prelude_path)...
+```
+
+**Proper fix** (from review):
+```rust
+// Check for duplicates during registration
+if self.variant_tags.contains_key(&variant_name) {
+    eprintln!("Warning: Duplicate variant definition for {}", variant_name);
+    continue; // Skip duplicate
+}
 ```
 
 **Hypothesis 2: Type Parameter Counting**
@@ -187,15 +204,53 @@ type Quad(A, B, C, D)
   "All multi-field tests passed!" write_line ;
 ```
 
+## Additional Issues from Code Review
+
+### Security: Path Traversal Risk
+**Location**: compiler/src/main.rs:78
+**Issue**: Prelude path is relative to CWD, not binary location
+**Fix**: Make stdlib path configurable or relative to binary:
+```rust
+let stdlib_dir = std::env::var("CEM_STDLIB_PATH")
+    .unwrap_or_else(|_| {
+        let exe_path = std::env::current_exe().unwrap();
+        let exe_dir = exe_path.parent().unwrap();
+        exe_dir.join("../stdlib").to_str().unwrap().to_string()
+    });
+```
+
+### Source Location Accuracy
+**Location**: compiler/src/main.rs:84
+**Issue**: Concatenating prelude + user source breaks line numbers in errors
+**Better approach**: Parse prelude separately, merge ASTs
+```rust
+let prelude_parser = Parser::new_with_filename(&prelude_source, prelude_path);
+let prelude_program = prelude_parser.parse()?;
+let user_program = user_parser.parse()?;
+let merged = merge_programs(prelude_program, user_program)?;
+```
+
+### Exit Code Validation
+**Location**: runtime/src/io.rs:93
+**Issue**: Large integers truncate silently when cast to i32
+**Fix**: Clamp to valid range:
+```rust
+if exit_code < 0 || exit_code > 255 {
+    eprintln!("Warning: exit code {} out of range", exit_code);
+}
+std::process::exit((exit_code & 0xFF) as i32);
+```
+
 ## Success Criteria
 - [ ] Understand where variant_field_counts is populated
 - [ ] Identify root cause of field count being 3 instead of 2
-- [ ] Fix the bug
+- [ ] Fix the bug (likely: add duplicate detection)
 - [ ] test_cons.cem compiles and runs
 - [ ] test_list.cem works with all stdlib list operations
 - [ ] LLVM IR shows correct number of alloc_cell calls
 - [ ] CI passes
 - [ ] Multi-field variant tests added and passing
+- [ ] (Post-merge) Fix security issues: path traversal, source locations, exit code validation
 
 ## Reference Files
 - Bug report: `docs/multi_field_variants_bug.md`
