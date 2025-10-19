@@ -79,6 +79,7 @@ pub unsafe extern "C" fn read_line(stack: *mut StackCell) -> *mut StackCell {
 ///
 /// # Safety
 /// Stack must have an Int on top representing the exit code.
+/// Exit code must be in range 0-255 (standard Unix exit code range).
 /// This function never returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn exit_op(stack: *mut StackCell) -> ! {
@@ -89,6 +90,13 @@ pub unsafe extern "C" fn exit_op(stack: *mut StackCell) -> ! {
     let exit_code = cell
         .as_int()
         .expect("exit_op: expected integer exit code on stack");
+
+    // Validate exit code is in valid range (0-255 for Unix compatibility)
+    if exit_code < 0 || exit_code > 255 {
+        unsafe {
+            crate::runtime_error(c"exit_op: exit code must be in range 0-255".as_ptr())
+        }
+    }
 
     std::process::exit(exit_code as i32);
 }

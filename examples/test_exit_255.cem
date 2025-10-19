@@ -1,0 +1,4 @@
+# Test maximum valid exit code
+: main ( -- )
+  "Exiting with code 255 (max valid)" write_line
+  255 exit ;
