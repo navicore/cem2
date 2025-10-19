@@ -41,23 +41,43 @@ Rust Compiler → LLVM IR → Rust Runtime (May coroutines, safe memory)
 ## Quick Example
 
 ```cem
-type Option<T> =
-  | Some(T)
-  | None
-
-: safe-div ( Int Int -- Option<Int> )
-  dup 0 =
-  [ drop drop None ]
-  [ / Some ]
-  if ;
-
 : main ( -- )
-  "Testing division..." write-line
-  10 2 safe-div match
-    Some => [ int-to-string write-line ]
-    None => [ "Division by zero!" write-line ]
-  end ;
+  "Creating a list..." write-line
+
+  # Build a list [1, 2, 3] using stdlib
+  Nil
+  3 swap Cons
+  2 swap Cons
+  1 swap Cons
+
+  # Get length (should be 3)
+  list-length
+  int-to-string write-line
+
+  "Done!" write-line ;
 ```
+
+## Standard Library
+
+Cem2 includes a **standard library prelude** that is automatically included in every program. The prelude provides:
+
+### Built-in Types
+- `List(T)` - Linked list with `Cons(head, tail)` and `Nil` constructors
+- `Option(T)` - Optional values with `Some(value)` and `None` constructors
+
+### List Operations
+- `list-head ( List(T) -- T )` - Get first element
+- `list-tail ( List(T) -- List(T) )` - Get rest of list
+- `list-length ( List(T) -- Int )` - Count elements
+- `list-reverse ( List(T) -- List(T) )` - Reverse a list
+- `list-append ( List(T) List(T) -- List(T) )` - Concatenate two lists
+
+### String Operations
+- `string-concat ( String String -- String )` - Concatenate strings
+- `string-length ( String -- Int )` - Get string length
+- `string-equal ( String String -- Bool )` - Compare strings
+
+The prelude is embedded at compile time, so programs work regardless of where the `cem` binary is installed.
 
 ## Status
 
