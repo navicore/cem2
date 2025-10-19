@@ -612,4 +612,64 @@ mod tests {
         let loc = crate::ast::SourceLoc::new(10, 5, "test.cem");
         assert_eq!(format!("{}", loc), "test.cem:10:5");
     }
+
+    #[test]
+    fn test_parse_multifield_variant() {
+        // Test that multi-field variants parse correctly
+        // Bug: comma between fields was being parsed as a field type
+        let input = r#"
+            type List(T)
+              | Cons(T, List(T))
+              | Nil
+        "#;
+
+        let mut parser = Parser::new(input);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.type_defs.len(), 1);
+        let typedef = &program.type_defs[0];
+        assert_eq!(typedef.name, "List");
+        assert_eq!(typedef.type_params.len(), 1);
+        assert_eq!(typedef.variants.len(), 2);
+
+        // Check Cons variant has exactly 2 fields
+        let cons_variant = &typedef.variants[0];
+        assert_eq!(cons_variant.name, "Cons");
+        assert_eq!(
+            cons_variant.fields.len(),
+            2,
+            "Cons should have 2 fields, not {}. Fields: {:?}",
+            cons_variant.fields.len(),
+            cons_variant.fields
+        );
+
+        // Verify no comma in fields (bug check)
+        for field in &cons_variant.fields {
+            if let crate::ast::types::Type::Named { name, .. } = field {
+                assert_ne!(
+                    name, ",",
+                    "Comma should not be parsed as a field type"
+                );
+            }
+        }
+
+        // Verify the fields are the correct types
+        match &cons_variant.fields[0] {
+            crate::ast::types::Type::Var(name) => assert_eq!(name, "T"),
+            other => panic!("First field should be Var(T), got {:?}", other),
+        }
+
+        match &cons_variant.fields[1] {
+            crate::ast::types::Type::Named { name, args } => {
+                assert_eq!(name, "List");
+                assert_eq!(args.len(), 1);
+            }
+            other => panic!("Second field should be Named(List), got {:?}", other),
+        }
+
+        // Check Nil variant has 0 fields
+        let nil_variant = &typedef.variants[1];
+        assert_eq!(nil_variant.name, "Nil");
+        assert_eq!(nil_variant.fields.len(), 0);
+    }
 }
