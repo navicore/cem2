@@ -1,0 +1,12 @@
+# Simplest possible test
+type Option(T)
+  | Some(T)
+  | None
+
+: main ( -- )
+  42 Some
+
+  match
+    Some => [ drop ]
+    None => [ ]
+  end ;

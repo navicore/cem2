@@ -133,6 +133,26 @@ impl CodeGen {
         }
     }
 
+    /// Check if a word is a runtime built-in (not user-defined)
+    /// Runtime built-ins should NOT use musttail in match branches
+    fn is_runtime_builtin(name: &str) -> bool {
+        matches!(
+            name,
+            // Stack operations
+            "dup" | "drop" | "swap" | "over" | "rot" | "nip" | "tuck" |
+            // Arithmetic
+            "+" | "-" | "*" | "/" |
+            // Comparisons
+            "<" | ">" | "<=" | ">=" | "=" | "!=" |
+            // String operations
+            "string-length" | "string-concat" | "string-equal" |
+            // Conversions
+            "int-to-string" | "bool-to-string" |
+            // I/O (these are async but don't need musttail)
+            "write-line" | "read-line"
+        )
+    }
+
     /// Compile a complete program to LLVM IR
     pub fn compile_program(&mut self, program: &Program) -> CodegenResult<String> {
         self.compile_program_with_main(program, None)
@@ -307,6 +327,8 @@ impl CodeGen {
         writeln!(&mut self.output, "declare void @runtime_error(ptr)")
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
         writeln!(&mut self.output, "declare ptr @alloc_cell()")
+            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+        writeln!(&mut self.output, "declare ptr @copy_cell(ptr)")
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
         // LLVM intrinsics
@@ -643,9 +665,12 @@ impl CodeGen {
     /// or if all branches end with expressions that need ret (Match/If with all branches returning)
     fn check_all_paths_returned(&self, expr: &Expr) -> bool {
         match expr {
-            // A word call (non-variant) in tail position will be compiled as musttail
+            // A user-defined word call (non-variant, non-builtin) in tail position will be compiled as musttail
             // The parent context (match branch or word body) will emit the ret statement
-            Expr::WordCall(name, _) => !self.variant_tags.contains_key(name),
+            // Runtime built-ins use normal calls, so they don't count as "returned"
+            Expr::WordCall(name, _) => {
+                !self.variant_tags.contains_key(name) && !Self::is_runtime_builtin(name)
+            }
 
             // Match emits ret for each branch if all branches end with musttail
             Expr::Match { branches, .. } => branches.iter().all(|b| {
@@ -771,9 +796,11 @@ impl CodeGen {
             stack_var = self.compile_expr_with_context(expr, &stack_var, is_tail)?;
 
             // Check if the last expression is a WordCall in tail position
+            // Only set ends_with_musttail for user-defined words (not runtime built-ins)
             if is_tail
                 && let Expr::WordCall(name, _) = expr
                 && !self.variant_tags.contains_key(name)
+                && !Self::is_runtime_builtin(name)
             {
                 ends_with_musttail = true;
             }
@@ -789,10 +816,13 @@ impl CodeGen {
         in_tail_position: bool,
     ) -> CodegenResult<String> {
         match expr {
-            // Tail-call optimization: if in tail position and calling a word, use musttail
+            // Tail-call optimization: if in tail position and calling a user-defined word, use musttail
             // BUT: variant constructors are not actual functions, so they can't be tail-called
+            // AND: runtime built-ins should use normal calls to avoid musttail issues in match branches
             Expr::WordCall(name, loc)
-                if in_tail_position && !self.variant_tags.contains_key(name) =>
+                if in_tail_position
+                    && !self.variant_tags.contains_key(name)
+                    && !Self::is_runtime_builtin(name) =>
             {
                 let result = self.fresh_temp();
                 let dbg = self.dbg_annotation(loc);
@@ -972,11 +1002,98 @@ impl CodeGen {
                             Ok(result)
                         }
                         _ => {
-                            // Multi-field variants not yet supported
-                            Err(CodegenError::InternalError(format!(
-                                "Variant constructor {} with {} fields not yet supported (only 0 or 1 fields)",
-                                name, field_count
-                            )))
+                            // Multi-field variants (2+ fields)
+                            // Strategy: Chain the fields as a linked list
+                            // For Cons(head, tail): stack has [tail, head]
+                            // 1. Pop and allocate each field in reverse order
+                            // 2. Link them together: field1.next = field2.next = ... = null
+                            // 3. Create variant with first field as data
+
+                            let mut field_cells = Vec::new();
+                            let mut current_stack = stack.to_string();
+
+                            // Pop and allocate each field
+                            for _i in 0..field_count {
+                                let field_cell = self.fresh_temp();
+                                let dbg = self.dbg_annotation(loc);
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @alloc_cell(){}",
+                                    field_cell, dbg
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                // Copy StackCell from top of stack to new cell
+                                writeln!(
+                                    &mut self.output,
+                                    "  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %{}, ptr align 8 %{}, i64 32, i1 false)",
+                                    field_cell, current_stack
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                field_cells.push(field_cell);
+
+                                // Get rest of stack (pop this field)
+                                let rest_ptr = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                    rest_ptr, current_stack
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                let rest = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = load ptr, ptr %{}",
+                                    rest, rest_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                current_stack = rest.to_string();
+                            }
+
+                            // Link fields together: field[0].next = field[1], field[1].next = field[2], etc.
+                            // Last field gets null
+                            for i in 0..field_count {
+                                let next_ptr = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                    next_ptr, field_cells[i]
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                if i + 1 < field_count {
+                                    // Link to next field
+                                    writeln!(
+                                        &mut self.output,
+                                        "  store ptr %{}, ptr %{}",
+                                        field_cells[i + 1],
+                                        next_ptr
+                                    )
+                                    .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                                } else {
+                                    // Last field gets null
+                                    writeln!(
+                                        &mut self.output,
+                                        "  store ptr null, ptr %{}",
+                                        next_ptr
+                                    )
+                                    .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                                }
+                            }
+
+                            // Create variant with first field as data pointer
+                            let result = self.fresh_temp();
+                            let dbg = self.dbg_annotation(loc);
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @push_variant(ptr %{}, i32 {}, ptr %{}){}",
+                                result, current_stack, tag, field_cells[0], dbg
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                            Ok(result)
                         }
                     }
                 } else {
@@ -1181,29 +1298,109 @@ impl CodeGen {
                         // Unit variant (e.g., None) - no data, just use rest
                         rest_var.clone()
                     } else if field_count == 1 {
-                        // Single-field variant (e.g., Some(T)) - link data cell to rest
-                        // We need to set data->next = rest
-                        let data_next_ptr = self.fresh_temp();
+                        // Single-field variant (e.g., Some(T)) - copy field and link to rest
+                        // Copy the field cell to avoid modifying the variant's owned data
+                        let field_copy = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @copy_cell(ptr %{})",
+                            field_copy, variant_data
+                        )
+                        .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                        // Link copied field to rest
+                        let field_next_ptr = self.fresh_temp();
                         writeln!(
                             &mut self.output,
                             "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
-                            data_next_ptr, variant_data
+                            field_next_ptr, field_copy
                         )
                         .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
                         writeln!(
                             &mut self.output,
                             "  store ptr %{}, ptr %{}",
-                            rest_var, data_next_ptr
+                            rest_var, field_next_ptr
                         )
                         .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
-                        variant_data.clone()
+                        field_copy
                     } else {
-                        return Err(CodegenError::InternalError(format!(
-                            "Pattern matching on variant {} with {} fields not yet supported",
-                            name, field_count
-                        )));
+                        // Multi-field variant (e.g., Cons(T, List(T)))
+                        // The fields are chained: data -> field[0] -> field[1] -> ... -> null
+                        // We need to COPY each field to avoid modifying the variant's owned data
+                        // Then link the copies together and to rest
+
+                        let mut field_copies = Vec::new();
+                        let mut current_original = variant_data.clone();
+
+                        // Walk the chain and copy each field
+                        for i in 0..field_count {
+                            // Copy the current field
+                            let field_copy = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @copy_cell(ptr %{})",
+                                field_copy, current_original
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                            field_copies.push(field_copy);
+
+                            // Move to next field in the original chain (but not on last iteration)
+                            if i + 1 < field_count {
+                                let next_ptr = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                    next_ptr, current_original
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                let next_field = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = load ptr, ptr %{}",
+                                    next_field, next_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                current_original = next_field;
+                            }
+                        }
+
+                        // Link the copied fields together: copy[0] -> copy[1] -> ... -> rest
+                        for i in 0..field_count {
+                            let next_ptr = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                next_ptr, field_copies[i]
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                            if i + 1 < field_count {
+                                // Link to next copy
+                                writeln!(
+                                    &mut self.output,
+                                    "  store ptr %{}, ptr %{}",
+                                    field_copies[i + 1],
+                                    next_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                            } else {
+                                // Last field links to rest
+                                writeln!(
+                                    &mut self.output,
+                                    "  store ptr %{}, ptr %{}",
+                                    rest_var, next_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                            }
+                        }
+
+                        // Return the first copied field as initial stack
+                        field_copies[0].clone()
                     };
 
                     let (branch_stack, ends_with_musttail) =

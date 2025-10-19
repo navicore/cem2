@@ -1,0 +1,4 @@
+# Test negative exit code (should error)
+: main ( -- )
+  "Attempting to exit with invalid code -1" write_line
+  -1 exit ;

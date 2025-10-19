@@ -1,0 +1,17 @@
+# Test list operations from stdlib
+: main ( -- )
+  "Testing list operations..." write_line
+
+  # Create a list: [1, 2, 3]
+  Nil
+  3 swap Cons
+  2 swap Cons
+  1 swap Cons
+
+  # Test list-length (should be 3)
+  dup list-length
+
+  # Should have: list 3
+  drop drop  # Drop length and list for now
+
+  "Done!" write_line ;

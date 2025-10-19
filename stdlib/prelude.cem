@@ -1,0 +1,121 @@
+# Cem Standard Library Prelude
+# Automatically included in every Cem program
+
+# ==============================================================================
+# Type Definitions
+# ==============================================================================
+
+type List(T)
+  | Cons(T, List(T))
+  | Nil
+
+type Option(T)
+  | Some(T)
+  | None
+
+# ==============================================================================
+# List Operations
+# ==============================================================================
+
+# list-empty: Create an empty list
+# ( -- List(T) )
+: list-empty ( -- List(T) )
+  Nil ;
+
+# list-cons: Add element to front of list
+# ( T List(T) -- List(T) )
+: list-cons ( T List(T) -- List(T) )
+  Cons ;
+
+# list-head: Get first element of list (unsafe - crashes on empty list)
+# ( List(T) -- T )
+: list-head ( List(T) -- T )
+  match
+    Cons => [ swap drop ]  # ( head tail -- head )
+    Nil  => [ "list-head: empty list" write_line 1 exit ]
+  end ;
+
+# list-tail: Get rest of list (unsafe - crashes on empty list)
+# ( List(T) -- List(T) )
+: list-tail ( List(T) -- List(T) )
+  match
+    Cons => [ drop ]       # ( head tail -- tail )
+    Nil  => [ "list-tail: empty list" write_line 1 exit ]
+  end ;
+
+# list-head-safe: Get first element of list safely
+# ( List(T) -- Option(T) )
+: list-head-safe ( List(T) -- Option(T) )
+  match
+    Cons => [ swap drop Some ]  # ( head tail -- Some(head) )
+    Nil  => [ None ]
+  end ;
+
+# list-tail-safe: Get rest of list safely
+# ( List(T) -- Option(List(T)) )
+: list-tail-safe ( List(T) -- Option(List(T)) )
+  match
+    Cons => [ drop Some ]       # ( head tail -- Some(tail) )
+    Nil  => [ None ]
+  end ;
+
+# list-is-empty: Check if list is empty
+# ( List(T) -- Bool )
+: list-is-empty ( List(T) -- Bool )
+  match
+    Cons => [ drop drop false ]  # Drop both head and tail, return false
+    Nil  => [ true ]
+  end ;
+
+# list-length-helper: Tail-recursive helper for list-length
+# ( List(T) Int -- Int )
+: list-length-helper ( List(T) Int -- Int )
+  swap                      # ( count list )
+  match
+    Cons => [               # ( count head tail )
+      swap drop             # ( count tail ) - drop head
+      swap 1 +              # ( tail count+1 )
+      list-length-helper    # Recurse: ( tail count+1 )
+    ]
+    Nil => [ ]              # ( count ) - return accumulator
+  end ;
+
+# list-length: Get length of list (tail-recursive, safe for large lists)
+# ( List(T) -- Int )
+: list-length ( List(T) -- Int )
+  0                         # ( list 0 )
+  list-length-helper ;
+
+# list-reverse-helper: Helper for list-reverse (accumulator-based)
+# ( List(T) List(T) -- List(T) )
+: list-reverse-helper ( List(T) List(T) -- List(T) )
+  swap                      # ( acc list )
+  match
+    Cons => [               # ( acc head tail )
+      rot swap              # ( head acc tail )
+      rot                   # ( acc tail head )
+      rot                   # ( tail head acc )
+      swap Cons             # ( tail head::acc )
+      list-reverse-helper   # Recurse with tail and new acc
+    ]
+    Nil => [ ]              # ( acc ) - return accumulator
+  end ;
+
+# list-reverse: Reverse a list
+# ( List(T) -- List(T) )
+: list-reverse ( List(T) -- List(T) )
+  Nil                       # Empty accumulator
+  list-reverse-helper ;
+
+# list-append: Append two lists
+# ( List(T) List(T) -- List(T) )
+: list-append ( List(T) List(T) -- List(T) )
+  swap                      # ( list2 list1 )
+  match
+    Cons => [               # ( list2 head tail )
+      rot                   # ( head tail list2 )
+      list-append           # ( head tail++list2 )
+      Cons                  # ( head::(tail++list2) )
+    ]
+    Nil => [ ]              # ( list2 ) - return list2
+  end ;

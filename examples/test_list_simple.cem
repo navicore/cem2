@@ -1,0 +1,19 @@
+# Simple list test - no recursion
+: main ( -- )
+  "Creating [1, 2]..." write_line
+
+  # Create Cons(1, Cons(2, Nil))
+  Nil
+  2 swap Cons
+  1 swap Cons
+
+  # Extract head and tail
+  match
+    Cons => [  # ( head tail )
+      "Got head and tail" write_line
+      drop drop  # Drop both
+    ]
+    Nil => [ "Was nil?" write_line ]
+  end
+
+  "Done!" write_line ;

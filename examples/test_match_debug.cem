@@ -1,0 +1,11 @@
+# Minimal match test - just enter the branch
+: main ( -- )
+  Nil
+  42 swap Cons
+
+  match
+    Cons => [ ]  # Do nothing, just enter the branch
+    Nil  => [ ]
+  end
+
+  "Done!" write_line ;

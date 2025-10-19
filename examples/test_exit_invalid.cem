@@ -1,0 +1,4 @@
+# Test invalid exit code (should error)
+: main ( -- )
+  "Attempting to exit with invalid code 256" write_line
+  256 exit ;

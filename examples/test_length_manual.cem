@@ -1,0 +1,32 @@
+# Manual list-length to debug
+: my-length ( List(T) -- Int )
+  0 swap                    # ( 0 list )
+  match
+    Cons => [               # ( count head tail )
+      "In Cons branch" write_line
+      rot                   # ( head tail count )
+      1 +                   # ( head tail count+1 )
+      swap                  # ( head count+1 tail )
+      "About to recurse" write_line
+      my-length             # ( head count+1 tail-length )
+      +                     # ( head total-length )
+      swap drop             # ( total-length )
+    ]
+    Nil => [
+      "In Nil branch" write_line
+    ]              # ( count ) - just leave count on stack
+  end ;
+
+: main ( -- )
+  "Testing manual length..." write_line
+
+  # Create [1, 2]
+  Nil
+  2 swap Cons
+  1 swap Cons
+
+  my-length
+
+  drop
+
+  "Done!" write_line ;

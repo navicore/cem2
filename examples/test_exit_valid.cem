@@ -1,0 +1,4 @@
+# Test valid exit code (0-255)
+: main ( -- )
+  "Exiting with code 0" write_line
+  0 exit ;

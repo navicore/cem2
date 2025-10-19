@@ -1,0 +1,24 @@
+# Test simple Cons construction
+# NOTE: List type is now defined in stdlib/prelude.cem
+# Commenting out duplicate definition to test if that's the bug
+#
+# type List(T)
+#   | Cons(T, List(T))
+#   | Nil
+
+: main ( -- )
+  "Testing Cons construction..." write_line
+
+  # Create Nil
+  Nil
+
+  # Create Cons(42, Nil)
+  42 swap Cons
+
+  # Match on it to verify
+  match
+    Cons => [ swap drop drop ]  # Drop both fields, leaving rest of stack
+    Nil  => [ ]  # Leave empty stack
+  end
+
+  "Done!" write_line ;

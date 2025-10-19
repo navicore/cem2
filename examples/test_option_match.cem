@@ -1,0 +1,14 @@
+# Test single-field variant matching
+type Option(T)
+  | Some(T)
+  | None
+
+: main ( -- )
+  42 Some
+
+  match
+    Some => [ drop ]  # Drop the field
+    None => [ ]
+  end
+
+  "Done!" write_line ;

@@ -33,6 +33,7 @@ pub enum TokenKind {
     LeftBracket,  // [
     RightBracket, // ]
     Dash,         // --
+    Comma,        // ,
 
     // Identifier (word name, type name, variant name)
     Ident,
@@ -124,6 +125,15 @@ impl Lexer {
                 return Token {
                     kind: TokenKind::Pipe,
                     lexeme: "|".to_string(),
+                    line: start_line,
+                    column: start_column,
+                };
+            }
+            ',' => {
+                self.advance();
+                return Token {
+                    kind: TokenKind::Comma,
+                    lexeme: ",".to_string(),
                     line: start_line,
                     column: start_column,
                 };
@@ -416,6 +426,7 @@ impl fmt::Display for TokenKind {
             TokenKind::LeftBracket => write!(f, "["),
             TokenKind::RightBracket => write!(f, "]"),
             TokenKind::Dash => write!(f, "--"),
+            TokenKind::Comma => write!(f, ","),
             TokenKind::Ident => write!(f, "IDENT"),
             TokenKind::Eof => write!(f, "EOF"),
             TokenKind::Comment => write!(f, "COMMENT"),

@@ -75,9 +75,17 @@ fn compile_command(
     let source = fs::read_to_string(input_file)
         .map_err(|e| format!("Failed to read {}: {}", input_file, e))?;
 
+    // Embed stdlib prelude at compile time
+    // This ensures the prelude is always available regardless of where the binary is installed
+    // (e.g., cargo install moves binary to ~/.cargo/bin but stdlib stays in src tree)
+    const PRELUDE: &str = include_str!("../../stdlib/prelude.cem");
+
+    // Combine prelude + user source
+    let combined_source = format!("{}\n\n{}", PRELUDE, source);
+
     // Parse
     println!("Parsing {}...", input_file);
-    let mut parser = Parser::new_with_filename(&source, input_file);
+    let mut parser = Parser::new_with_filename(&combined_source, input_file);
     let program = parser.parse().map_err(|e| format!("Parse error: {}", e))?;
 
     // Build runtime first

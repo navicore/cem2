@@ -1,0 +1,36 @@
+# Test list operations from stdlib
+
+: main ( -- )
+  "Testing list operations..." write_line
+
+  # Test list-empty and list-is-empty
+  "Test 1: Empty list..." write_line
+  list-empty list-is-empty bool-to-string write_line  # Should print "true"
+
+  # Test list-cons
+  "Test 2: Creating list [1, 2, 3]..." write_line
+  list-empty
+  3 swap list-cons
+  2 swap list-cons
+  1 swap list-cons
+  # Stack: List(1, 2, 3)
+
+  # Test list-is-empty on non-empty list
+  dup list-is-empty bool-to-string write_line  # Should print "false"
+
+  # Test list-head
+  "Test 3: Getting head of [1, 2, 3]..." write_line
+  dup list-head int-to-string write_line  # Should print "1"
+
+  # Test list-tail and list-head
+  "Test 4: Getting head of tail..." write_line
+  dup list-tail list-head int-to-string write_line  # Should print "2"
+
+  # Test list-length
+  "Test 5: Getting length of [1, 2, 3]..." write_line
+  dup list-length int-to-string write_line  # Should print "3"
+
+  # Drop the list we've been using
+  drop
+
+  "All list tests passed!" write_line ;

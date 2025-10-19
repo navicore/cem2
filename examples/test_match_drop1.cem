@@ -1,0 +1,11 @@
+# Test with one drop
+: main ( -- )
+  Nil
+  42 swap Cons
+
+  match
+    Cons => [ drop ]  # Drop just one field
+    Nil  => [ ]
+  end
+
+  "Done!" write_line ;
