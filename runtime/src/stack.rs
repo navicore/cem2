@@ -375,7 +375,21 @@ pub unsafe extern "C" fn call_quotation(stack: *mut StackCell) -> *mut StackCell
         // Extract the function pointer
         let func_ptr = quot_cell.data.quotation_ptr;
 
-        // Cast to the correct function type: fn(*mut StackCell) -> *mut StackCell
+        // SAFETY: This transmute is safe because the LLVM codegen guarantees that
+        // quotation_ptr is always a valid function pointer with the exact signature
+        // fn(*mut StackCell) -> *mut StackCell. All quotation functions are generated
+        // by compile_quotation_expr in the compiler's codegen and have this signature.
+        //
+        // Invariants that ensure safety:
+        // 1. The pointer comes from LLVM @function references (compile_quotation_expr)
+        // 2. The signature is enforced by the codegen for all quotation functions
+        // 3. Type checking ensures quotations are only created from valid code blocks
+        // 4. The CellType::Quotation tag ensures this cell was created by push_quotation
+        //
+        // This is sound because:
+        // - Only the compiler can create quotation cells (via push_quotation runtime call)
+        // - The compiler only passes function pointers from quotation function definitions
+        // - All quotation functions have identical C ABI signatures
         let func: fn(*mut StackCell) -> *mut StackCell = std::mem::transmute(func_ptr);
         func(rest_stack)
     }
