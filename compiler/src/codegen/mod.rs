@@ -152,7 +152,7 @@ impl CodeGen {
             "int_to_string" | "bool_to_string" |  // underscore variants
             // I/O (these are async but don't need musttail)
             "write-line" | "read-line" |
-            "write_line" | "read_line"  // underscore variants
+            "write_line" | "read_line" // underscore variants
         )
     }
 
