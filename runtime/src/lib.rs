@@ -9,6 +9,7 @@ pub mod io;
 pub mod pattern;
 pub mod scheduler;
 pub mod stack;
+pub mod strings;
 
 // Re-export main types
 pub use stack::{CellDataUnion, CellType, StackCell, VariantData};
