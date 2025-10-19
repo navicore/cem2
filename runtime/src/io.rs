@@ -1,8 +1,8 @@
 /*!
-I/O Operations with May Coroutines - Edition 2024 compliant
+I/O Operations with May Coroutines - C-compatible layout
 */
 
-use crate::stack::{CellData, StackCell};
+use crate::stack::{CellDataUnion, CellType, StackCell};
 use std::io::{self, Write};
 
 /// # Safety
@@ -13,14 +13,27 @@ pub unsafe extern "C" fn write_line(stack: *mut StackCell) -> *mut StackCell {
 
     let (rest, cell) = unsafe { StackCell::pop(stack) };
 
-    let s = match cell.data {
-        CellData::String(s) => s,
-        _ => panic!("write_line: expected string on stack"),
+    // Get the C string using safe accessor
+    let c_str_ptr = cell
+        .as_string_ptr()
+        .expect("write_line: expected string on stack");
+
+    assert!(
+        !c_str_ptr.is_null(),
+        "write_line: unexpected null string pointer"
+    );
+
+    let s = unsafe {
+        match std::ffi::CStr::from_ptr(c_str_ptr).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(_) => crate::runtime_error(c"write_line: string contains invalid UTF-8".as_ptr()),
+        }
     };
 
     println!("{}", s);
     io::stdout().flush().unwrap();
 
+    // String is automatically freed when cell is dropped
     rest
 }
 
@@ -42,10 +55,21 @@ pub unsafe extern "C" fn read_line(stack: *mut StackCell) -> *mut StackCell {
         }
     }
 
+    // Convert to C string
+    // Note: Cem strings must not contain null bytes (interior nulls are not supported)
+    let c_string = std::ffi::CString::new(line).unwrap_or_else(|_| unsafe {
+        crate::runtime_error(
+            c"read_line: input contains null byte (not supported in Cem strings)".as_ptr(),
+        )
+    });
+
     let cell = Box::new(StackCell {
-        cell_type: crate::stack::CellType::String,
-        data: CellData::String(line),
-        next: None,
+        cell_type: CellType::String,
+        _padding: 0,
+        data: CellDataUnion {
+            string_ptr: c_string.into_raw(),
+        },
+        next: std::ptr::null_mut(),
     });
 
     unsafe { StackCell::push(stack, cell) }
