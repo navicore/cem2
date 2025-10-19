@@ -75,25 +75,13 @@ fn compile_command(
     let source = fs::read_to_string(input_file)
         .map_err(|e| format!("Failed to read {}: {}", input_file, e))?;
 
-    // Read and prepend stdlib prelude
-    // Use executable-relative path for security (don't rely on CWD)
-    let exe_path =
-        std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
-    let exe_dir = exe_path
-        .parent()
-        .ok_or("Failed to get executable directory")?;
-    // Executable is at target/release/cem, stdlib is at project root
-    let prelude_path = exe_dir.join("../../stdlib/prelude.cem");
-    let prelude = fs::read_to_string(&prelude_path).map_err(|e| {
-        format!(
-            "Failed to read stdlib prelude {}: {}",
-            prelude_path.display(),
-            e
-        )
-    })?;
+    // Embed stdlib prelude at compile time
+    // This ensures the prelude is always available regardless of where the binary is installed
+    // (e.g., cargo install moves binary to ~/.cargo/bin but stdlib stays in src tree)
+    const PRELUDE: &str = include_str!("../../stdlib/prelude.cem");
 
     // Combine prelude + user source
-    let combined_source = format!("{}\n\n{}", prelude, source);
+    let combined_source = format!("{}\n\n{}", PRELUDE, source);
 
     // Parse
     println!("Parsing {}...", input_file);
