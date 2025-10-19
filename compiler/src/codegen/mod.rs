@@ -133,6 +133,26 @@ impl CodeGen {
         }
     }
 
+    /// Check if a word is a runtime built-in (not user-defined)
+    /// Runtime built-ins should NOT use musttail in match branches
+    fn is_runtime_builtin(name: &str) -> bool {
+        matches!(
+            name,
+            // Stack operations
+            "dup" | "drop" | "swap" | "over" | "rot" | "nip" | "tuck" |
+            // Arithmetic
+            "+" | "-" | "*" | "/" |
+            // Comparisons
+            "<" | ">" | "<=" | ">=" | "=" | "!=" |
+            // String operations
+            "string-length" | "string-concat" | "string-equal" |
+            // Conversions
+            "int-to-string" | "bool-to-string" |
+            // I/O (these are async but don't need musttail)
+            "write-line" | "read-line"
+        )
+    }
+
     /// Compile a complete program to LLVM IR
     pub fn compile_program(&mut self, program: &Program) -> CodegenResult<String> {
         self.compile_program_with_main(program, None)
@@ -645,9 +665,12 @@ impl CodeGen {
     /// or if all branches end with expressions that need ret (Match/If with all branches returning)
     fn check_all_paths_returned(&self, expr: &Expr) -> bool {
         match expr {
-            // A word call (non-variant) in tail position will be compiled as musttail
+            // A user-defined word call (non-variant, non-builtin) in tail position will be compiled as musttail
             // The parent context (match branch or word body) will emit the ret statement
-            Expr::WordCall(name, _) => !self.variant_tags.contains_key(name),
+            // Runtime built-ins use normal calls, so they don't count as "returned"
+            Expr::WordCall(name, _) => {
+                !self.variant_tags.contains_key(name) && !Self::is_runtime_builtin(name)
+            }
 
             // Match emits ret for each branch if all branches end with musttail
             Expr::Match { branches, .. } => branches.iter().all(|b| {
@@ -773,9 +796,11 @@ impl CodeGen {
             stack_var = self.compile_expr_with_context(expr, &stack_var, is_tail)?;
 
             // Check if the last expression is a WordCall in tail position
+            // Only set ends_with_musttail for user-defined words (not runtime built-ins)
             if is_tail
                 && let Expr::WordCall(name, _) = expr
                 && !self.variant_tags.contains_key(name)
+                && !Self::is_runtime_builtin(name)
             {
                 ends_with_musttail = true;
             }
@@ -791,10 +816,13 @@ impl CodeGen {
         in_tail_position: bool,
     ) -> CodegenResult<String> {
         match expr {
-            // Tail-call optimization: if in tail position and calling a word, use musttail
+            // Tail-call optimization: if in tail position and calling a user-defined word, use musttail
             // BUT: variant constructors are not actual functions, so they can't be tail-called
+            // AND: runtime built-ins should use normal calls to avoid musttail issues in match branches
             Expr::WordCall(name, loc)
-                if in_tail_position && !self.variant_tags.contains_key(name) =>
+                if in_tail_position
+                    && !self.variant_tags.contains_key(name)
+                    && !Self::is_runtime_builtin(name) =>
             {
                 let result = self.fresh_temp();
                 let dbg = self.dbg_annotation(loc);

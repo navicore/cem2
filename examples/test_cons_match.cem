@@ -6,9 +6,8 @@
   42 swap Cons
 
   match
-    Cons => [ ]  # Leave fields on stack
+    Cons => [ swap drop drop ]  # Drop both fields inside match!
     Nil  => [ ]
   end
 
-  drop drop  # Drop fields outside match
   "Done!" write_line ;
