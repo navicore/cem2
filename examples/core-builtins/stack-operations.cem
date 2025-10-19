@@ -12,6 +12,7 @@
   5 5 <= bool-to-string write_line # Should print "true"
   5 5 >= bool-to-string write_line # Should print "true"
   5 3 != bool-to-string write_line # Should print "true"
+  5 3 = bool-to-string write_line # Should print "false"
 
   "Testing stack operations..." write_line
   1 2 3 rot drop drop int-to-string write_line # rot: (1 2 3 -> 2 3 1), then drop 1 and 3, leaving 2
