@@ -1935,16 +1935,16 @@ mod tests {
 
         // 4. Verify continuation code is NOT in the unreachable default block
         //    Extract the match_default block
-        if let Some(default_start) = ir.find("match_default_") {
-            if let Some(default_block) = ir[default_start..].split('}').next() {
-                // After "unreachable", there should be NO push_int
-                if let Some(unreachable_pos) = default_block.find("unreachable") {
-                    let after_unreachable = &default_block[unreachable_pos..];
-                    assert!(
-                        !after_unreachable.contains("push_int"),
-                        "Continuation code must NOT appear after unreachable in default block"
-                    );
-                }
+        if let Some(default_start) = ir.find("match_default_")
+            && let Some(default_block) = ir[default_start..].split('}').next()
+        {
+            // After "unreachable", there should be NO push_int
+            if let Some(unreachable_pos) = default_block.find("unreachable") {
+                let after_unreachable = &default_block[unreachable_pos..];
+                assert!(
+                    !after_unreachable.contains("push_int"),
+                    "Continuation code must NOT appear after unreachable in default block"
+                );
             }
         }
 
