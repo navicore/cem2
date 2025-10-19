@@ -35,11 +35,7 @@ pub unsafe extern "C" fn write_line(stack: *mut StackCell) -> *mut StackCell {
     println!("{}", s);
     io::stdout().flush().unwrap();
 
-    // Free the string
-    unsafe {
-        let _ = std::ffi::CString::from_raw(c_str_ptr);
-    }
-
+    // String is automatically freed when cell is dropped
     rest
 }
 

@@ -75,6 +75,26 @@ impl std::fmt::Debug for StackCell {
     }
 }
 
+impl Drop for StackCell {
+    fn drop(&mut self) {
+        unsafe {
+            match self.cell_type {
+                CellType::String => {
+                    if !self.data.string_ptr.is_null() {
+                        let _ = std::ffi::CString::from_raw(self.data.string_ptr);
+                    }
+                }
+                CellType::Variant => {
+                    if !self.data.variant.data.is_null() {
+                        let _ = Box::from_raw(self.data.variant.data);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 impl StackCell {
     /// # Safety
     /// Stack pointer must be a valid StackCell or null.
@@ -238,24 +258,8 @@ pub unsafe extern "C" fn drop(stack: *mut StackCell) -> *mut StackCell {
     }
 
     unsafe {
-        let (rest, cell) = StackCell::pop(stack);
-
-        // Free owned resources
-        match cell.cell_type {
-            CellType::String => {
-                if !cell.data.string_ptr.is_null() {
-                    let _ = std::ffi::CString::from_raw(cell.data.string_ptr);
-                }
-            }
-            CellType::Variant => {
-                // Free variant data if present
-                if !cell.data.variant.data.is_null() {
-                    let _ = Box::from_raw(cell.data.variant.data);
-                }
-            }
-            _ => {}
-        }
-
+        let (rest, _cell) = StackCell::pop(stack);
+        // Cell is automatically cleaned up by Drop impl
         rest
     }
 }
