@@ -21,6 +21,11 @@ pub unsafe extern "C" fn write_line(stack: *mut StackCell) -> *mut StackCell {
 
     // Get the C string from the union
     let c_str_ptr = unsafe { cell.data.string_ptr };
+    assert!(
+        !c_str_ptr.is_null(),
+        "write_line: unexpected null string pointer"
+    );
+
     let s = unsafe {
         std::ffi::CStr::from_ptr(c_str_ptr)
             .to_string_lossy()
@@ -57,7 +62,7 @@ pub unsafe extern "C" fn read_line(stack: *mut StackCell) -> *mut StackCell {
     }
 
     // Convert to C string
-    let c_string = std::ffi::CString::new(line).unwrap();
+    let c_string = std::ffi::CString::new(line).expect("read_line: input contains null byte");
 
     let cell = Box::new(StackCell {
         cell_type: CellType::String,

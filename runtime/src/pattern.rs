@@ -4,10 +4,14 @@ Pattern Matching Runtime Support - C-compatible variant operations
 
 use crate::stack::{CellDataUnion, CellType, StackCell, VariantData};
 
+/// Maximum allowed variant tag value (reasonable limit to catch invalid tags)
+const MAX_VARIANT_TAG: u32 = 1000;
+
 /// Push a variant onto the stack
 ///
 /// # Safety
 /// - `stack` must be a valid StackCell pointer or null
+/// - `tag` must be a valid variant tag (< MAX_VARIANT_TAG)
 /// - `field_data` must be either:
 ///   - null (for 0-field variants like None)
 ///   - a valid StackCell pointer (for 1-field variants like Some)
@@ -19,6 +23,13 @@ pub unsafe extern "C" fn push_variant(
     tag: u32,
     field_data: *mut StackCell,
 ) -> *mut StackCell {
+    assert!(
+        tag < MAX_VARIANT_TAG,
+        "push_variant: invalid variant tag {} (max {})",
+        tag,
+        MAX_VARIANT_TAG
+    );
+
     let cell = Box::new(StackCell {
         cell_type: CellType::Variant,
         _padding: 0,

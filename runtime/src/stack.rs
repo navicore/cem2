@@ -93,6 +93,73 @@ impl StackCell {
         cell.next = stack;
         Box::into_raw(cell)
     }
+
+    /// Deep clone a cell (recursively clones heap-allocated data)
+    ///
+    /// # Safety
+    /// Cell pointer must be valid. This properly deep-copies all heap allocations
+    /// to prevent double-free issues.
+    pub unsafe fn deep_clone(cell: &StackCell) -> StackCell {
+        unsafe {
+            match cell.cell_type {
+                CellType::Int => StackCell {
+                    cell_type: CellType::Int,
+                    _padding: 0,
+                    data: CellDataUnion {
+                        int_val: cell.data.int_val,
+                    },
+                    next: ptr::null_mut(),
+                },
+                CellType::Bool => StackCell {
+                    cell_type: CellType::Bool,
+                    _padding: 0,
+                    data: CellDataUnion {
+                        bool_val: cell.data.bool_val,
+                    },
+                    next: ptr::null_mut(),
+                },
+                CellType::String => {
+                    // Deep copy the string
+                    let original_ptr = cell.data.string_ptr;
+                    let rust_str = std::ffi::CStr::from_ptr(original_ptr)
+                        .to_string_lossy()
+                        .into_owned();
+                    let new_c_str = std::ffi::CString::new(rust_str).unwrap();
+                    StackCell {
+                        cell_type: CellType::String,
+                        _padding: 0,
+                        data: CellDataUnion {
+                            string_ptr: new_c_str.into_raw(),
+                        },
+                        next: ptr::null_mut(),
+                    }
+                }
+                CellType::Variant => {
+                    // Deep copy the variant and its field data (recursively)
+                    let variant = cell.data.variant;
+                    let cloned_data = if variant.data.is_null() {
+                        ptr::null_mut()
+                    } else {
+                        // Recursively deep-clone the field cell
+                        let field = &*variant.data;
+                        Box::into_raw(Box::new(Self::deep_clone(field)))
+                    };
+                    StackCell {
+                        cell_type: CellType::Variant,
+                        _padding: 0,
+                        data: CellDataUnion {
+                            variant: VariantData {
+                                tag: variant.tag,
+                                _padding: 0,
+                                data: cloned_data,
+                            },
+                        },
+                        next: ptr::null_mut(),
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -150,74 +217,14 @@ pub unsafe extern "C" fn push_string(stack: *mut StackCell, s: *const i8) -> *mu
 
 /// # Safety
 /// Stack must not be empty.
+/// Deep-copies all heap-allocated data to prevent double-free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dup(stack: *mut StackCell) -> *mut StackCell {
     assert!(!stack.is_null(), "dup: stack is empty");
 
     unsafe {
         let top = &*stack;
-        let duplicated = Box::new(match top.cell_type {
-            CellType::Int => StackCell {
-                cell_type: CellType::Int,
-                _padding: 0,
-                data: CellDataUnion {
-                    int_val: top.data.int_val,
-                },
-                next: ptr::null_mut(),
-            },
-            CellType::Bool => StackCell {
-                cell_type: CellType::Bool,
-                _padding: 0,
-                data: CellDataUnion {
-                    bool_val: top.data.bool_val,
-                },
-                next: ptr::null_mut(),
-            },
-            CellType::String => {
-                // Clone the string
-                let original_ptr = top.data.string_ptr;
-                let rust_str = std::ffi::CStr::from_ptr(original_ptr)
-                    .to_string_lossy()
-                    .into_owned();
-                let new_c_str = std::ffi::CString::new(rust_str).unwrap();
-                StackCell {
-                    cell_type: CellType::String,
-                    _padding: 0,
-                    data: CellDataUnion {
-                        string_ptr: new_c_str.into_raw(),
-                    },
-                    next: ptr::null_mut(),
-                }
-            }
-            CellType::Variant => {
-                // For variants, we need to deep-clone the data
-                let variant = top.data.variant;
-                let cloned_data = if variant.data.is_null() {
-                    ptr::null_mut()
-                } else {
-                    // Clone the field cell
-                    let field = &*variant.data;
-                    Box::into_raw(Box::new(StackCell {
-                        cell_type: field.cell_type,
-                        _padding: 0,
-                        data: field.data,
-                        next: ptr::null_mut(),
-                    }))
-                };
-                StackCell {
-                    cell_type: CellType::Variant,
-                    _padding: 0,
-                    data: CellDataUnion {
-                        variant: VariantData {
-                            tag: variant.tag,
-                            _padding: 0,
-                            data: cloned_data,
-                        },
-                    },
-                    next: ptr::null_mut(),
-                }
-            }
-        });
+        let duplicated = Box::new(StackCell::deep_clone(top));
         StackCell::push(stack, duplicated)
     }
 }
@@ -267,6 +274,7 @@ pub unsafe extern "C" fn swap(stack: *mut StackCell) -> *mut StackCell {
 
 /// # Safety
 /// Stack must have at least 2 elements.
+/// Deep-copies all heap-allocated data to prevent double-free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn over(stack: *mut StackCell) -> *mut StackCell {
     assert!(!stack.is_null(), "over: stack too small");
@@ -276,65 +284,7 @@ pub unsafe extern "C" fn over(stack: *mut StackCell) -> *mut StackCell {
         assert!(!top.next.is_null(), "over: stack too small");
         let second = &*top.next;
 
-        let duplicated = Box::new(match second.cell_type {
-            CellType::Int => StackCell {
-                cell_type: CellType::Int,
-                _padding: 0,
-                data: CellDataUnion {
-                    int_val: second.data.int_val,
-                },
-                next: ptr::null_mut(),
-            },
-            CellType::Bool => StackCell {
-                cell_type: CellType::Bool,
-                _padding: 0,
-                data: CellDataUnion {
-                    bool_val: second.data.bool_val,
-                },
-                next: ptr::null_mut(),
-            },
-            CellType::String => {
-                let original_ptr = second.data.string_ptr;
-                let rust_str = std::ffi::CStr::from_ptr(original_ptr)
-                    .to_string_lossy()
-                    .into_owned();
-                let new_c_str = std::ffi::CString::new(rust_str).unwrap();
-                StackCell {
-                    cell_type: CellType::String,
-                    _padding: 0,
-                    data: CellDataUnion {
-                        string_ptr: new_c_str.into_raw(),
-                    },
-                    next: ptr::null_mut(),
-                }
-            }
-            CellType::Variant => {
-                let variant = second.data.variant;
-                let cloned_data = if variant.data.is_null() {
-                    ptr::null_mut()
-                } else {
-                    let field = &*variant.data;
-                    Box::into_raw(Box::new(StackCell {
-                        cell_type: field.cell_type,
-                        _padding: 0,
-                        data: field.data,
-                        next: ptr::null_mut(),
-                    }))
-                };
-                StackCell {
-                    cell_type: CellType::Variant,
-                    _padding: 0,
-                    data: CellDataUnion {
-                        variant: VariantData {
-                            tag: variant.tag,
-                            _padding: 0,
-                            data: cloned_data,
-                        },
-                    },
-                    next: ptr::null_mut(),
-                }
-            }
-        });
+        let duplicated = Box::new(StackCell::deep_clone(second));
         StackCell::push(stack, duplicated)
     }
 }
@@ -428,6 +378,45 @@ mod tests {
             let (rest, result) = StackCell::pop(stack);
             assert!(rest.is_null());
             assert_eq!(result.data.int_val, 42);
+        }
+    }
+
+    #[test]
+    fn test_dup_drop_no_double_free() {
+        use std::ffi::CString;
+
+        unsafe {
+            // Test with string (heap-allocated)
+            let stack = ptr::null_mut();
+            let test_str = CString::new("test").unwrap();
+            let stack = push_string(stack, test_str.as_ptr());
+
+            // Duplicate the string
+            let stack = dup(stack);
+
+            // Now we have two copies - drop both should not double-free
+            let stack = drop(stack); // Drop the duplicate
+            let stack = drop(stack); // Drop the original
+
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_variant_dup_drop() {
+        unsafe {
+            // Test with variant containing heap data
+            let field = push_int(ptr::null_mut(), 42);
+            let stack = crate::pattern::push_variant(ptr::null_mut(), 0, field);
+
+            // Duplicate the variant
+            let stack = dup(stack);
+
+            // Both copies should be independently droppable
+            let stack = drop(stack); // Drop duplicate
+            let stack = drop(stack); // Drop original
+
+            assert!(stack.is_null());
         }
     }
 }
