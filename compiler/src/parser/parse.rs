@@ -112,7 +112,12 @@ impl Parser {
                 self.advance();
                 while !self.check(&TokenKind::RightParen) && !self.is_at_end() {
                     fields.push(self.parse_type()?);
-                    if self.check(&TokenKind::RightParen) {
+
+                    // If there's a comma, consume it and continue
+                    // If there's no comma, we're done with fields
+                    if self.check(&TokenKind::Comma) {
+                        self.advance();
+                    } else {
                         break;
                     }
                 }
