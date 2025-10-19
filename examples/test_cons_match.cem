@@ -1,0 +1,13 @@
+# Test match on Cons
+: main ( -- )
+  "Creating and matching Cons..." write_line
+
+  Nil
+  42 swap Cons
+
+  match
+    Cons => [ swap drop drop ]
+    Nil  => [ ]
+  end
+
+  "Done!" write_line ;

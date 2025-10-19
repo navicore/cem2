@@ -1,0 +1,12 @@
+# Simpler test - just create and drop a Cons
+: main ( -- )
+  "Creating Nil..." write_line
+  Nil
+  drop
+
+  "Creating Cons(42, Nil)..." write_line
+  Nil
+  42 swap Cons
+  drop
+
+  "Done!" write_line ;
