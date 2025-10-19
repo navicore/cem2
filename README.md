@@ -66,11 +66,14 @@ Cem2 includes a **standard library prelude** that is automatically included in e
 - `Option(T)` - Optional values with `Some(value)` and `None` constructors
 
 ### List Operations
-- `list-head ( List(T) -- T )` - Get first element
-- `list-tail ( List(T) -- List(T) )` - Get rest of list
-- `list-length ( List(T) -- Int )` - Count elements
+- `list-head ( List(T) -- T )` - Get first element (unsafe: crashes on empty list)
+- `list-head-safe ( List(T) -- Option(T) )` - Get first element safely
+- `list-tail ( List(T) -- List(T) )` - Get rest of list (unsafe: crashes on empty list)
+- `list-tail-safe ( List(T) -- Option(List(T)) )` - Get rest of list safely
+- `list-length ( List(T) -- Int )` - Count elements (tail-recursive)
 - `list-reverse ( List(T) -- List(T) )` - Reverse a list
 - `list-append ( List(T) List(T) -- List(T) )` - Concatenate two lists
+- `list-is-empty ( List(T) -- Bool )` - Check if list is empty
 
 ### String Operations
 - `string-concat ( String String -- String )` - Concatenate strings

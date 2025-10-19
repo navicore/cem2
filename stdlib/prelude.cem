@@ -2,12 +2,16 @@
 # Automatically included in every Cem program
 
 # ==============================================================================
-# List Type Definition
+# Type Definitions
 # ==============================================================================
 
 type List(T)
   | Cons(T, List(T))
   | Nil
+
+type Option(T)
+  | Some(T)
+  | None
 
 # ==============================================================================
 # List Operations
@@ -39,6 +43,22 @@ type List(T)
     Nil  => [ "list-tail: empty list" write_line 1 exit ]
   end ;
 
+# list-head-safe: Get first element of list safely
+# ( List(T) -- Option(T) )
+: list-head-safe ( List(T) -- Option(T) )
+  match
+    Cons => [ swap drop Some ]  # ( head tail -- Some(head) )
+    Nil  => [ None ]
+  end ;
+
+# list-tail-safe: Get rest of list safely
+# ( List(T) -- Option(List(T)) )
+: list-tail-safe ( List(T) -- Option(List(T)) )
+  match
+    Cons => [ drop Some ]       # ( head tail -- Some(tail) )
+    Nil  => [ None ]
+  end ;
+
 # list-is-empty: Check if list is empty
 # ( List(T) -- Bool )
 : list-is-empty ( List(T) -- Bool )
@@ -47,21 +67,24 @@ type List(T)
     Nil  => [ true ]
   end ;
 
-# list-length: Get length of list
-# ( List(T) -- Int )
-: list-length ( List(T) -- Int )
-  0 swap                    # ( 0 list )
+# list-length-helper: Tail-recursive helper for list-length
+# ( List(T) Int -- Int )
+: list-length-helper ( List(T) Int -- Int )
+  swap                      # ( count list )
   match
     Cons => [               # ( count head tail )
-      rot                   # ( head tail count )
-      1 +                   # ( head tail count+1 )
-      swap                  # ( head count+1 tail )
-      list-length           # ( head count+1 tail-length )
-      +                     # ( head total-length )
-      swap drop             # ( total-length )
+      swap drop             # ( count tail ) - drop head
+      swap 1 +              # ( tail count+1 )
+      list-length-helper    # Recurse: ( tail count+1 )
     ]
-    Nil => [ ]              # ( count ) - just leave count on stack
+    Nil => [ ]              # ( count ) - return accumulator
   end ;
+
+# list-length: Get length of list (tail-recursive, safe for large lists)
+# ( List(T) -- Int )
+: list-length ( List(T) -- Int )
+  0                         # ( list 0 )
+  list-length-helper ;
 
 # list-reverse-helper: Helper for list-reverse (accumulator-based)
 # ( List(T) List(T) -- List(T) )
