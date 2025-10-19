@@ -354,6 +354,56 @@ pub unsafe extern "C" fn over(stack: *mut StackCell) -> *mut StackCell {
 }
 
 /// # Safety
+/// Stack must have at least 3 elements.
+/// rot: ( A B C -- B C A )
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rot(stack: *mut StackCell) -> *mut StackCell {
+    assert!(!stack.is_null(), "rot: stack too small");
+    let (rest, c) = unsafe { StackCell::pop(stack) };
+    assert!(!rest.is_null(), "rot: stack too small");
+    let (rest, b) = unsafe { StackCell::pop(rest) };
+    assert!(!rest.is_null(), "rot: stack too small");
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    // ( A B C -- B C A )
+    let rest = unsafe { StackCell::push(rest, b) };
+    let rest = unsafe { StackCell::push(rest, c) };
+    unsafe { StackCell::push(rest, a) }
+}
+
+/// # Safety
+/// Stack must have at least 2 elements.
+/// nip: ( A B -- B )
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nip(stack: *mut StackCell) -> *mut StackCell {
+    assert!(!stack.is_null(), "nip: stack too small");
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    assert!(!rest.is_null(), "nip: stack too small");
+    let (rest, _a) = unsafe { StackCell::pop(rest) };
+    // Drop a, keep b
+    unsafe { StackCell::push(rest, b) }
+}
+
+/// # Safety
+/// Stack must have at least 2 elements.
+/// Deep-copies the top element to prevent double-free.
+/// tuck: ( A B -- B A B )
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tuck(stack: *mut StackCell) -> *mut StackCell {
+    assert!(!stack.is_null(), "tuck: stack too small");
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    assert!(!rest.is_null(), "tuck: stack too small");
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    // ( A B -- B A B )
+    // Need to clone B since it appears twice in result
+    let b_clone = unsafe { Box::new(StackCell::deep_clone(&b)) };
+    let rest = unsafe { StackCell::push(rest, b) };
+    let rest = unsafe { StackCell::push(rest, a) };
+    unsafe { StackCell::push(rest, b_clone) }
+}
+
+/// # Safety
 /// Stack must have 2 integers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn add(stack: *mut StackCell) -> *mut StackCell {
@@ -383,6 +433,132 @@ pub unsafe extern "C" fn multiply(stack: *mut StackCell) -> *mut StackCell {
 
     let result = a_val * b_val;
     unsafe { push_int(rest, result) }
+}
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn subtract(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a
+        .as_int()
+        .expect("subtract: first operand must be an integer");
+    let b_val = b
+        .as_int()
+        .expect("subtract: second operand must be an integer");
+
+    let result = a_val - b_val;
+    unsafe { push_int(rest, result) }
+}
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn divide(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a
+        .as_int()
+        .expect("divide: first operand must be an integer");
+    let b_val = b
+        .as_int()
+        .expect("divide: second operand must be an integer");
+
+    assert!(b_val != 0, "divide: division by zero");
+
+    let result = a_val / b_val;
+    unsafe { push_int(rest, result) }
+}
+
+// ============================================================================
+// Comparison operations
+// ============================================================================
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn eq(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a.as_int().expect("eq: first operand must be an integer");
+    let b_val = b.as_int().expect("eq: second operand must be an integer");
+
+    let result = a_val == b_val;
+    unsafe { push_bool(rest, result) }
+}
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lt(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a.as_int().expect("lt: first operand must be an integer");
+    let b_val = b.as_int().expect("lt: second operand must be an integer");
+
+    let result = a_val < b_val;
+    unsafe { push_bool(rest, result) }
+}
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gt(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a.as_int().expect("gt: first operand must be an integer");
+    let b_val = b.as_int().expect("gt: second operand must be an integer");
+
+    let result = a_val > b_val;
+    unsafe { push_bool(rest, result) }
+}
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn le(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a.as_int().expect("le: first operand must be an integer");
+    let b_val = b.as_int().expect("le: second operand must be an integer");
+
+    let result = a_val <= b_val;
+    unsafe { push_bool(rest, result) }
+}
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ge(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a.as_int().expect("ge: first operand must be an integer");
+    let b_val = b.as_int().expect("ge: second operand must be an integer");
+
+    let result = a_val >= b_val;
+    unsafe { push_bool(rest, result) }
+}
+
+/// # Safety
+/// Stack must have 2 integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ne(stack: *mut StackCell) -> *mut StackCell {
+    let (rest, b) = unsafe { StackCell::pop(stack) };
+    let (rest, a) = unsafe { StackCell::pop(rest) };
+
+    let a_val = a.as_int().expect("ne: first operand must be an integer");
+    let b_val = b.as_int().expect("ne: second operand must be an integer");
+
+    let result = a_val != b_val;
+    unsafe { push_bool(rest, result) }
 }
 
 #[cfg(test)]
@@ -485,6 +661,261 @@ mod tests {
             let stack = drop(stack); // Drop original
 
             assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_rot() {
+        unsafe {
+            // Test rot: ( A B C -- B C A )
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 1); // A
+            let stack = push_int(stack, 2); // B
+            let stack = push_int(stack, 3); // C
+            let stack = rot(stack);
+
+            let (rest, a) = StackCell::pop(stack); // Should be 1
+            let (rest, c) = StackCell::pop(rest); // Should be 3
+            let (rest, b) = StackCell::pop(rest); // Should be 2
+
+            assert!(rest.is_null());
+            assert_eq!(a.as_int().unwrap(), 1);
+            assert_eq!(c.as_int().unwrap(), 3);
+            assert_eq!(b.as_int().unwrap(), 2);
+        }
+    }
+
+    #[test]
+    fn test_nip() {
+        unsafe {
+            // Test nip: ( A B -- B )
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 1); // A
+            let stack = push_int(stack, 2); // B
+            let stack = nip(stack);
+
+            let (rest, b) = StackCell::pop(stack); // Should be 2
+
+            assert!(rest.is_null());
+            assert_eq!(b.as_int().unwrap(), 2);
+        }
+    }
+
+    #[test]
+    fn test_tuck() {
+        unsafe {
+            // Test tuck: ( A B -- B A B )
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 1); // A
+            let stack = push_int(stack, 2); // B
+            let stack = tuck(stack);
+
+            let (rest, b2) = StackCell::pop(stack); // Should be 2
+            let (rest, a) = StackCell::pop(rest); // Should be 1
+            let (rest, b1) = StackCell::pop(rest); // Should be 2
+
+            assert!(rest.is_null());
+            assert_eq!(b2.as_int().unwrap(), 2);
+            assert_eq!(a.as_int().unwrap(), 1);
+            assert_eq!(b1.as_int().unwrap(), 2);
+        }
+    }
+
+    #[test]
+    fn test_subtract() {
+        unsafe {
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 10);
+            let stack = push_int(stack, 3);
+            let stack = subtract(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert_eq!(result.as_int().unwrap(), 7);
+        }
+    }
+
+    #[test]
+    fn test_divide() {
+        unsafe {
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 20);
+            let stack = push_int(stack, 4);
+            let stack = divide(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert_eq!(result.as_int().unwrap(), 5);
+        }
+    }
+
+    #[test]
+    fn test_comparison_eq() {
+        unsafe {
+            // Test equal
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 5);
+            let stack = eq(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test not equal
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 3);
+            let stack = eq(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(!result.as_bool().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_comparison_lt() {
+        unsafe {
+            // Test less than (true)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 3);
+            let stack = push_int(stack, 5);
+            let stack = lt(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test less than (false)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 3);
+            let stack = lt(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(!result.as_bool().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_comparison_gt() {
+        unsafe {
+            // Test greater than (true)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 3);
+            let stack = gt(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test greater than (false)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 3);
+            let stack = push_int(stack, 5);
+            let stack = gt(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(!result.as_bool().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_comparison_le() {
+        unsafe {
+            // Test <= (true, equal)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 5);
+            let stack = le(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test <= (true, less)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 3);
+            let stack = push_int(stack, 5);
+            let stack = le(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test <= (false)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 6);
+            let stack = push_int(stack, 5);
+            let stack = le(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(!result.as_bool().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_comparison_ge() {
+        unsafe {
+            // Test >= (true, equal)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 5);
+            let stack = ge(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test >= (true, greater)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 6);
+            let stack = push_int(stack, 5);
+            let stack = ge(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test >= (false)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 3);
+            let stack = push_int(stack, 5);
+            let stack = ge(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(!result.as_bool().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_comparison_ne() {
+        unsafe {
+            // Test not equal (true)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 3);
+            let stack = ne(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(result.as_bool().unwrap());
+
+            // Test not equal (false)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 5);
+            let stack = ne(stack);
+
+            let (rest, result) = StackCell::pop(stack);
+            assert!(rest.is_null());
+            assert!(!result.as_bool().unwrap());
         }
     }
 }

@@ -1,0 +1,19 @@
+# Test new runtime operations
+
+: main ( -- )
+  "Testing arithmetic operations..." write_line
+  10 3 - int-to-string write_line  # Should print "7"
+  20 4 / int-to-string write_line  # Should print "5"
+
+  "Testing comparison operators..." write_line
+  5 5 = bool-to-string write_line  # Should print "true"
+  3 5 < bool-to-string write_line  # Should print "true"
+  5 3 > bool-to-string write_line  # Should print "true"
+  5 5 <= bool-to-string write_line # Should print "true"
+  5 5 >= bool-to-string write_line # Should print "true"
+  5 3 != bool-to-string write_line # Should print "true"
+
+  "Testing stack operations..." write_line
+  1 2 3 rot drop drop int-to-string write_line # rot: (1 2 3 -> 2 3 1), then drop 1 and 3, leaving 2
+
+  "All tests passed!" write_line ;
