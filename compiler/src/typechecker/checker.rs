@@ -94,9 +94,23 @@ impl TypeChecker {
             }
 
             Expr::Quotation(_exprs, _) => {
-                // For now, treat quotations as opaque
-                // In future: infer the quotation's effect
-                // For now: push a generic quotation type
+                // TODO(#10): Implement quotation body type checking
+                //
+                // KNOWN LIMITATION: Currently all quotations have type [ -- ] regardless
+                // of their actual contents. This is a soundness hole in the type system.
+                //
+                // What needs to be implemented:
+                // 1. Type-check the quotation body expressions
+                // 2. Infer the actual input/output stack effects
+                // 3. Return Type::Quotation with the inferred effect
+                //
+                // Until this is fixed, invalid quotation usage will pass type checking
+                // and fail at runtime. For example, this incorrectly type-checks:
+                //   : broken ( Int -- String )
+                //     [ 1 + ]  # Type should be [Int -- Int], not [Int -- String]
+                //     call ;
+                //
+                // For now: push a generic quotation type with empty effect
                 let quotation_effect = Effect::new(StackType::empty(), StackType::empty());
                 Ok(stack.push(Type::Quotation(Box::new(quotation_effect))))
             }
@@ -244,7 +258,20 @@ impl TypeChecker {
                     .collect(),
             },
             Type::Quotation(eff) => {
-                // Would need to substitute in effect too
+                // TODO(#10): Implement recursive substitution into quotation effects
+                //
+                // KNOWN LIMITATION: Type substitution doesn't recurse into quotation
+                // effects. This will break when we have polymorphic quotations like:
+                //
+                //   : apply ( a [a -- b] -- b ) call ;
+                //
+                // When instantiating type variables 'a' and 'b', the quotation's effect
+                // won't be updated, causing incorrect type inference.
+                //
+                // To fix: implement apply_subst_to_effect that recursively substitutes
+                // in both input and output stack types of the effect.
+                //
+                // For now: just clone the effect without substitution
                 Type::Quotation(eff.clone())
             }
             _ => ty.clone(),

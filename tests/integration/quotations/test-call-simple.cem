@@ -1,0 +1,8 @@
+: add-one ( Int -- Int )
+  1 + ;
+
+: main ( -- )
+  5                    # Stack: ( 5 )
+  [ add-one ]          # Stack: ( 5 [add-one] )
+  call                 # Should call quotation on 5
+  int-to-string write_line ;

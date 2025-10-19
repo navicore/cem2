@@ -1,0 +1,6 @@
+: add-one ( Int -- Int )
+  1 + ;
+
+: main ( -- )
+  5 [ add-one ] call
+  int-to-string write_line ;

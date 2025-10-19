@@ -1,0 +1,5 @@
+: main ( -- )
+  true if
+    [ "true branch" write_line ]
+    [ "false branch" write_line ]
+  "done" write_line ;

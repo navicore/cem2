@@ -119,3 +119,22 @@ type Option(T)
     ]
     Nil => [ ]              # ( list2 ) - return list2
   end ;
+
+
+
+# ==============================================================================
+# Quotation Operations
+# ==============================================================================
+
+# call: Invoke a quotation (alias for call_quotation)
+# ( [A -- B] -- )
+: call ( [A -- B] -- )
+  call_quotation ;
+
+# ==============================================================================
+# Higher-Order List Operations
+# ==============================================================================
+
+# TODO: Implement list-map, list-filter, list-fold-left
+# These require complex stack shuffling and are being developed separately.
+# See GitHub issue for details on the implementation challenges.

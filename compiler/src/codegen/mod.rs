@@ -44,6 +44,7 @@ use std::process::Command;
 pub struct CodeGen {
     output: String,
     string_globals: String, // Separate area for string constant declarations
+    quotation_functions: String, // Separate area for quotation function definitions
     temp_counter: usize,
     string_counter: usize, // Separate counter for string constants (never reset)
     current_block: String, // Track the current basic block label we're emitting into
@@ -64,6 +65,7 @@ impl CodeGen {
         CodeGen {
             output: String::new(),
             string_globals: String::new(),
+            quotation_functions: String::new(),
             temp_counter: 0,
             string_counter: 0,
             current_block: "entry".to_string(),
@@ -216,8 +218,11 @@ impl CodeGen {
         // Emit debug metadata footer (compile unit and module flags)
         self.emit_debug_info_footer()?;
 
-        // Prepend string constants to output
-        let final_output = self.string_globals.clone() + &self.output;
+        // Assemble final output:
+        // 1. String constants (global declarations)
+        // 2. Quotation functions (must come before word definitions that use them)
+        // 3. Word definitions and main function
+        let final_output = self.string_globals.clone() + &self.quotation_functions + &self.output;
 
         Ok(final_output)
     }
@@ -1137,7 +1142,7 @@ impl CodeGen {
                 let saved_counter = self.temp_counter;
                 self.temp_counter += 1;
 
-                // Save current output
+                // Save current output and generate quotation function separately
                 let saved_output = self.output.clone();
                 self.output.clear();
 
@@ -1172,9 +1177,12 @@ impl CodeGen {
                 writeln!(&mut self.output)
                     .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
-                // Prepend the quotation function to saved output
-                let quot_func = self.output.clone();
-                self.output = saved_output + &quot_func;
+                // Append the quotation function to quotation_functions area
+                // (will be emitted before word definitions in compile_program)
+                self.quotation_functions.push_str(&self.output);
+
+                // Restore saved output
+                self.output = saved_output;
 
                 // Restore temp counter for current function
                 self.temp_counter = saved_counter + 1;
@@ -1501,21 +1509,14 @@ impl CodeGen {
                     Ok(result)
                 } else {
                     // All branches ended with musttail and return
-                    // BUT: There may be continuation code after the match expression in the source.
-                    // We need a continuation block for that code, even though it's unreachable.
-                    // This handles cases like:
-                    //   match
-                    //     Cons => [ ... tailcall ]
-                    //     Nil => [ ... tailcall ]
-                    //   end
-                    //   "After match" write_line  # <- continuation code
-                    //
-                    // Without this block, continuation code would be emitted in the default case
-                    // after the unreachable instruction, causing LLVM IR errors.
-                    let continuation_label = format!("match_continuation_{}", match_id);
-                    writeln!(&mut self.output, "{}:", continuation_label)
-                        .map_err(|e| CodegenError::InternalError(e.to_string()))?;
-                    self.current_block = continuation_label;
+                    // If we're NOT in tail position, there may be continuation code after the match.
+                    // Create a continuation block for that code (even though unreachable).
+                    if !in_tail_position {
+                        let continuation_label = format!("match_continuation_{}", match_id);
+                        writeln!(&mut self.output, "{}:", continuation_label)
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                        self.current_block = continuation_label;
+                    }
 
                     // Return rest_var as the stack value for continuation code
                     // (even though this code is unreachable, it must be well-formed)
@@ -1663,9 +1664,18 @@ impl CodeGen {
                     }
                     Ok(result)
                 } else {
-                    // Both branches end with musttail and return - no merge point needed
-                    // This is actually unreachable code after the if, so return a dummy value
-                    Ok(then_stack) // Won't be used since both branches returned
+                    // Both branches end with musttail and return
+                    // If we're NOT in tail position, there may be continuation code after the if.
+                    // Create a merge block for that code (even though unreachable).
+                    if !in_tail_position {
+                        writeln!(&mut self.output, "{}:", merge_label)
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                        self.current_block = merge_label.clone();
+                    }
+
+                    // Return rest_var as the stack value for continuation code
+                    // (even though this code is unreachable, it must be well-formed)
+                    Ok(rest_var)
                 }
             }
         }

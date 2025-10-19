@@ -200,39 +200,69 @@ impl Parser {
     }
 
     fn parse_type_inner(&mut self) -> Result<Type, ParseError> {
-        let name = self.consume_ident("Expected type name")?;
+        // Check for quotation type: [ inputs -- outputs ]
+        if self.check(&TokenKind::LeftBracket) {
+            self.advance(); // consume '['
 
-        match name.as_str() {
-            "Int" => Ok(Type::Int),
-            "Bool" => Ok(Type::Bool),
-            "String" => Ok(Type::String),
-            _ => {
-                // Check if it's a generic type variable (single uppercase letter or starts with lowercase)
-                let first_char = name.chars().next();
+            // Parse input stack types
+            let mut inputs = Vec::new();
+            while !self.check(&TokenKind::Dash) && !self.is_at_end() {
+                inputs.push(self.parse_type()?);
+            }
 
-                // Single uppercase letter or lowercase name = type variable
-                if (name.len() == 1 && first_char.is_some_and(|c| c.is_uppercase()))
-                    || first_char.is_some_and(|c| c.is_lowercase())
-                {
-                    Ok(Type::Var(name))
-                } else {
-                    // Named type, possibly with type arguments
-                    let args = if self.check(&TokenKind::LeftParen) {
-                        self.advance();
-                        let mut args = Vec::new();
-                        while !self.check(&TokenKind::RightParen) && !self.is_at_end() {
-                            args.push(self.parse_type()?);
-                            if self.check(&TokenKind::RightParen) {
-                                break;
-                            }
-                        }
-                        self.consume(&TokenKind::RightParen, "Expected ')'")?;
-                        args
+            // Consume '--'
+            self.consume(&TokenKind::Dash, "Expected '--' in quotation type")?;
+
+            // Parse output stack types
+            let mut outputs = Vec::new();
+            while !self.check(&TokenKind::RightBracket) && !self.is_at_end() {
+                outputs.push(self.parse_type()?);
+            }
+
+            // Consume ']'
+            self.consume(
+                &TokenKind::RightBracket,
+                "Expected ']' after quotation type",
+            )?;
+
+            Ok(Type::Quotation(Box::new(Effect::from_vecs(
+                inputs, outputs,
+            ))))
+        } else {
+            let name = self.consume_ident("Expected type name")?;
+
+            match name.as_str() {
+                "Int" => Ok(Type::Int),
+                "Bool" => Ok(Type::Bool),
+                "String" => Ok(Type::String),
+                _ => {
+                    // Check if it's a generic type variable (single uppercase letter or starts with lowercase)
+                    let first_char = name.chars().next();
+
+                    // Single uppercase letter or lowercase name = type variable
+                    if (name.len() == 1 && first_char.is_some_and(|c| c.is_uppercase()))
+                        || first_char.is_some_and(|c| c.is_lowercase())
+                    {
+                        Ok(Type::Var(name))
                     } else {
-                        Vec::new()
-                    };
+                        // Named type, possibly with type arguments
+                        let args = if self.check(&TokenKind::LeftParen) {
+                            self.advance();
+                            let mut args = Vec::new();
+                            while !self.check(&TokenKind::RightParen) && !self.is_at_end() {
+                                args.push(self.parse_type()?);
+                                if self.check(&TokenKind::RightParen) {
+                                    break;
+                                }
+                            }
+                            self.consume(&TokenKind::RightParen, "Expected ')'")?;
+                            args
+                        } else {
+                            Vec::new()
+                        };
 
-                    Ok(Type::Named { name, args })
+                        Ok(Type::Named { name, args })
+                    }
                 }
             }
         }

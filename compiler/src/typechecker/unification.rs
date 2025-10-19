@@ -67,7 +67,17 @@ fn unify_types_with_subst(ty1: &Type, ty2: &Type, subst: &mut Substitution) -> T
 
         // Quotations: unify their effects (would need effect unification)
         (Type::Quotation(_eff1), Type::Quotation(_eff2)) => {
-            // TODO: Implement effect unification
+            // TODO(#10): Implement effect unification
+            //
+            // KNOWN LIMITATION: Any two quotation types unify successfully, even if
+            // they have incompatible effects. This compounds the soundness hole from
+            // quotation type inference.
+            //
+            // Example that should fail but won't:
+            //   : takes-int-to-int ( [Int -- Int] -- ) drop ;
+            //   : main ( -- ) [ "hello" write_line ] takes-int-to-int ;
+            //
+            // To fix: recursively unify the input and output stack types of the effects
             // For now, just succeed
             Ok(())
         }
