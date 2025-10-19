@@ -1384,7 +1384,8 @@ impl CodeGen {
                                 writeln!(
                                     &mut self.output,
                                     "  store ptr %{}, ptr %{}",
-                                    field_copies[i + 1], next_ptr
+                                    field_copies[i + 1],
+                                    next_ptr
                                 )
                                 .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                             } else {

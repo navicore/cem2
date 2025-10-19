@@ -651,10 +651,7 @@ mod tests {
         // Verify no comma in fields (bug check)
         for field in &cons_variant.fields {
             if let crate::ast::types::Type::Named { name, .. } = field {
-                assert_ne!(
-                    name, ",",
-                    "Comma should not be parsed as a field type"
-                );
+                assert_ne!(name, ",", "Comma should not be parsed as a field type");
             }
         }
 
