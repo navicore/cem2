@@ -1,0 +1,15 @@
+# Test single-field variant without drop
+type Option(T)
+  | Some(T)
+  | None
+
+: main ( -- )
+  42 Some
+
+  match
+    Some => [ ]  # Don't drop, just leave field on stack
+    None => [ ]
+  end
+
+  drop  # Drop the field here outside the match
+  "Done!" write_line ;

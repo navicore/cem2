@@ -308,6 +308,8 @@ impl CodeGen {
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
         writeln!(&mut self.output, "declare ptr @alloc_cell()")
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+        writeln!(&mut self.output, "declare ptr @copy_cell(ptr)")
+            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
         // LLVM intrinsics
         writeln!(
@@ -1268,73 +1270,108 @@ impl CodeGen {
                         // Unit variant (e.g., None) - no data, just use rest
                         rest_var.clone()
                     } else if field_count == 1 {
-                        // Single-field variant (e.g., Some(T)) - link data cell to rest
-                        // We need to set data->next = rest
-                        let data_next_ptr = self.fresh_temp();
+                        // Single-field variant (e.g., Some(T)) - copy field and link to rest
+                        // Copy the field cell to avoid modifying the variant's owned data
+                        let field_copy = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @copy_cell(ptr %{})",
+                            field_copy, variant_data
+                        )
+                        .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                        // Link copied field to rest
+                        let field_next_ptr = self.fresh_temp();
                         writeln!(
                             &mut self.output,
                             "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
-                            data_next_ptr, variant_data
+                            field_next_ptr, field_copy
                         )
                         .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
                         writeln!(
                             &mut self.output,
                             "  store ptr %{}, ptr %{}",
-                            rest_var, data_next_ptr
+                            rest_var, field_next_ptr
                         )
                         .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
-                        variant_data.clone()
+                        field_copy
                     } else {
                         // Multi-field variant (e.g., Cons(T, List(T)))
-                        // The fields are already chained: data -> field1 -> field2 -> ... -> null
-                        // We need to find the last field and link it to rest
-                        // Then the stack becomes: field1 field2 ... fieldN rest...
+                        // The fields are chained: data -> field[0] -> field[1] -> ... -> null
+                        // We need to COPY each field to avoid modifying the variant's owned data
+                        // Then link the copies together and to rest
 
-                        // Walk the chain to find the last field
-                        let mut current_field = variant_data.clone();
-                        for i in 0..field_count - 1 {
+                        let mut field_copies = Vec::new();
+                        let mut current_original = variant_data.clone();
+
+                        // Walk the chain and copy each field
+                        for i in 0..field_count {
+                            // Copy the current field
+                            let field_copy = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @copy_cell(ptr %{})",
+                                field_copy, current_original
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                            field_copies.push(field_copy);
+
+                            // Move to next field in the original chain (but not on last iteration)
+                            if i + 1 < field_count {
+                                let next_ptr = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                    next_ptr, current_original
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                let next_field = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = load ptr, ptr %{}",
+                                    next_field, next_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                current_original = next_field;
+                            }
+                        }
+
+                        // Link the copied fields together: copy[0] -> copy[1] -> ... -> rest
+                        for i in 0..field_count {
                             let next_ptr = self.fresh_temp();
                             writeln!(
                                 &mut self.output,
                                 "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
-                                next_ptr, current_field
+                                next_ptr, field_copies[i]
                             )
                             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
-                            let next_field = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = load ptr, ptr %{}",
-                                next_field, next_ptr
-                            )
-                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
-
-                            // For the last iteration, we'll need to update this field's next pointer
-                            if i == field_count - 2 {
-                                // This is the last field, link it to rest
-                                let last_next_ptr = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
-                                    last_next_ptr, next_field
-                                )
-                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
-
+                            if i + 1 < field_count {
+                                // Link to next copy
                                 writeln!(
                                     &mut self.output,
                                     "  store ptr %{}, ptr %{}",
-                                    rest_var, last_next_ptr
+                                    field_copies[i + 1], next_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                            } else {
+                                // Last field links to rest
+                                writeln!(
+                                    &mut self.output,
+                                    "  store ptr %{}, ptr %{}",
+                                    rest_var, next_ptr
                                 )
                                 .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                             }
-
-                            current_field = next_field;
                         }
 
-                        // Return the first field as initial stack
-                        variant_data.clone()
+                        // Return the first copied field as initial stack
+                        field_copies[0].clone()
                     };
 
                     let (branch_stack, ends_with_musttail) =

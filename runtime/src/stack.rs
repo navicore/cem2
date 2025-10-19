@@ -561,6 +561,21 @@ pub unsafe extern "C" fn ne(stack: *mut StackCell) -> *mut StackCell {
     unsafe { push_bool(rest, result) }
 }
 
+/// Deep copy a cell (for variant field extraction)
+///
+/// # Safety
+/// Cell pointer must be valid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn copy_cell(cell: *mut StackCell) -> *mut StackCell {
+    assert!(!cell.is_null(), "copy_cell: null cell");
+
+    unsafe {
+        let original = &*cell;
+        let cloned = StackCell::deep_clone(original);
+        Box::into_raw(Box::new(cloned))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
