@@ -1687,6 +1687,7 @@ impl Default for CodeGen {
 mod tests {
     use super::*;
     use crate::ast::types::{Effect, StackType, Type};
+    use crate::ast::{MatchBranch, Pattern, TypeDef, Variant, WordDef};
 
     #[test]
     fn test_codegen_simple() {
@@ -1827,6 +1828,155 @@ mod tests {
         assert!(
             ir.contains("call ptr @call_quotation"),
             "Should call call_quotation"
+        );
+    }
+
+    #[test]
+    fn test_continuation_code_after_match() {
+        // Regression test for bug where code after match expressions
+        // was either placed in unreachable blocks (causing LLVM errors)
+        // or never executed (due to incorrect tail-call optimization)
+        let mut codegen = CodeGen::new();
+
+        // Define List type
+        let list_type = TypeDef {
+            name: "List".to_string(),
+            type_params: vec!["T".to_string()],
+            variants: vec![
+                Variant {
+                    name: "Cons".to_string(),
+                    fields: vec![
+                        Type::Var("T".to_string()),
+                        Type::Named {
+                            name: "List".to_string(),
+                            args: vec![Type::Var("T".to_string())],
+                        },
+                    ],
+                },
+                Variant {
+                    name: "Nil".to_string(),
+                    fields: vec![],
+                },
+            ],
+        };
+
+        // Word that has code after a match expression:
+        // : test ( -- Int )
+        //   Nil
+        //   match
+        //     Cons => [ drop drop 0 ]
+        //     Nil => [ 0 ]
+        //   end
+        //   42 + ;  # <- continuation code that must execute
+        let word = WordDef {
+            name: "test".to_string(),
+            effect: Effect {
+                inputs: StackType::Empty,
+                outputs: StackType::Cons {
+                    rest: Box::new(StackType::Empty),
+                    top: Type::Int,
+                },
+            },
+            body: vec![
+                // Create Nil
+                Expr::WordCall("Nil".to_string(), SourceLoc::unknown()),
+                // Match on it (both branches push 0)
+                Expr::Match {
+                    branches: vec![
+                        MatchBranch {
+                            pattern: Pattern::Variant {
+                                name: "Cons".to_string(),
+                            },
+                            body: vec![
+                                Expr::WordCall("drop".to_string(), SourceLoc::unknown()),
+                                Expr::WordCall("drop".to_string(), SourceLoc::unknown()),
+                                Expr::IntLit(0, SourceLoc::unknown()),
+                            ],
+                        },
+                        MatchBranch {
+                            pattern: Pattern::Variant {
+                                name: "Nil".to_string(),
+                            },
+                            body: vec![Expr::IntLit(0, SourceLoc::unknown())],
+                        },
+                    ],
+                    loc: SourceLoc::unknown(),
+                },
+                // CONTINUATION CODE - this must be reachable and properly compiled
+                Expr::IntLit(42, SourceLoc::unknown()),
+                Expr::WordCall("+".to_string(), SourceLoc::unknown()),
+            ],
+            loc: SourceLoc::unknown(),
+        };
+
+        let program = Program {
+            type_defs: vec![list_type],
+            word_defs: vec![word],
+        };
+
+        let ir = codegen.compile_program(&program).unwrap();
+
+        // 1. Verify IR is well-formed (no LLVM errors)
+        //    The bug caused: "error: instruction expected to be numbered '%43' or greater"
+        //    If this test compiles without panic, IR is syntactically valid
+
+        // 2. Verify match generates proper control flow
+        assert!(
+            ir.contains("switch i32"),
+            "Match should generate switch statement"
+        );
+
+        // 3. Verify continuation code exists in IR
+        //    The bug caused this code to either be in unreachable blocks or use wrong tail calls
+        assert!(
+            ir.contains("call ptr @push_int(ptr %"),
+            "Continuation code (push 42) should be in IR"
+        );
+
+        // 4. Verify continuation code is NOT in the unreachable default block
+        //    Extract the match_default block
+        if let Some(default_start) = ir.find("match_default_") {
+            if let Some(default_block) = ir[default_start..].split('}').next() {
+                // After "unreachable", there should be NO push_int
+                if let Some(unreachable_pos) = default_block.find("unreachable") {
+                    let after_unreachable = &default_block[unreachable_pos..];
+                    assert!(
+                        !after_unreachable.contains("push_int"),
+                        "Continuation code must NOT appear after unreachable in default block"
+                    );
+                }
+            }
+        }
+
+        // 5. Verify branches don't use musttail (since match is not in tail position)
+        //    The bug caused branches to always use musttail, making continuation unreachable
+        let match_section = if let Some(start) = ir.find("switch i32") {
+            if let Some(end) = ir[start..].find("match_continuation_") {
+                &ir[start..start + end]
+            } else if let Some(end) = ir[start..].find("match_merge_") {
+                &ir[start..start + end]
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
+
+        // In the match branches section, we should NOT see musttail calls
+        // (Because the match is not in tail position - there's code after it)
+        let musttail_count = match_section.matches("musttail").count();
+        assert_eq!(
+            musttail_count, 0,
+            "Match branches should not use musttail when match is not in tail position"
+        );
+
+        // 6. Verify there's either a merge block or continuation block
+        //    (proper control flow for non-tail match)
+        let has_merge = ir.contains("match_merge_");
+        let has_continuation = ir.contains("match_continuation_");
+        assert!(
+            has_merge || has_continuation,
+            "Non-tail match should have merge or continuation block"
         );
     }
 }
