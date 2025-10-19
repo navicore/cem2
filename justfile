@@ -22,6 +22,22 @@ build-compiler:
     cargo build --release -p cem-compiler
     @echo "✅ Compiler built: target/release/cem"
 
+# Build all example programs
+build-examples: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Building examples..."
+    mkdir -p target/examples
+    for file in examples/*.cem; do
+        if [ -f "$file" ]; then
+            name=$(basename "$file" .cem)
+            echo "  Compiling $name..."
+            target/release/cem compile "$file" -o "target/examples/$name"
+        fi
+    done
+    echo "✅ Examples built in target/examples/"
+    ls -lh target/examples/
+
 # Install the compiler to ~/.cargo/bin
 install:
     cargo install --path compiler
@@ -63,8 +79,7 @@ clean:
     @echo "Cleaning build artifacts..."
     cargo clean
     rm -f *.ll *.o
-    rm -f examples/*_exe
-    rm -f hello hello_io echo
+    rm -rf target/examples
     @echo "✅ Clean complete"
 
 # Development: quick format + build

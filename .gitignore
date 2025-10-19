@@ -9,10 +9,8 @@ Cargo.lock
 *.bc
 *.o
 
-# Compiled binaries
-/examples/*_exe
-/hello
-/hello_io
+# Compiled binaries (all built to target/examples/ now)
+/target/examples/
 /test_*
 !tests/
 

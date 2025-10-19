@@ -1,0 +1,6 @@
+# hello_io.cem - Hello World with I/O
+#
+# This is the real Hello World - it actually prints!
+
+: main ( -- )
+  "Hello, World!" write_line ;

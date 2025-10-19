@@ -5,7 +5,8 @@
       "Bash(just fmt)",
       "Bash(just ci)",
       "Bash(find runtime/src compiler/src -name \"*.rs\" -exec sed -i '' )",
-      "Bash({} ;)"
+      "Bash({} ;)",
+      "Bash(just build-runtime)"
     ],
     "deny": [],
     "ask": []
