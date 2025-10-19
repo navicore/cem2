@@ -6,7 +6,9 @@
       "Bash(just ci)",
       "Bash(find runtime/src compiler/src -name \"*.rs\" -exec sed -i '' )",
       "Bash({} ;)",
-      "Bash(just build-runtime)"
+      "Bash(just build-runtime)",
+      "Bash(git add compiler/src/parser/parse.rs)",
+      "Bash(git commit -m \"Add failing test for multi-field variant parsing (TDD)\n\nTest demonstrates the parser bug: comma between fields in Cons(T, List(T))\nis being parsed as a third field with name \"\",\"\".\n\nExpected: 2 fields [Var(\"\"T\"\"), Named(\"\"List\"\", ...)]\nActual: 3 fields [Var(\"\"T\"\"), Named(\"\",\"\"), Named(\"\"List\"\", ...)]\n\nTest output:\n  assertion failed: Cons should have 2 fields, not 3\n  Fields: [Var(\"\"T\"\"), Named { name: \"\",\"\", args: [] }, Named { name: \"\"List\"\", args: [Var(\"\"T\"\")] }]\n\nThis test will pass once the parser is fixed to treat commas as field\nseparators rather than as type names.\n\nNext: Fix the parser to make this test pass (TDD green phase).\")"
     ],
     "deny": [],
     "ask": []

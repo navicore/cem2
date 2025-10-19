@@ -1,0 +1,20 @@
+# Test with debug output
+: main ( -- )
+  "Creating Cons..." write_line
+
+  Nil
+  42 swap Cons
+
+  "Before match..." write_line
+
+  match
+    Cons => [
+      "In Cons branch..." write_line
+      swap drop drop
+      "After drops..." write_line
+    ]
+    Nil  => [ "In Nil branch..." write_line ]
+  end
+
+  "After match..." write_line
+  "Done!" write_line ;
