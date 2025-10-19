@@ -28,12 +28,14 @@ build-examples: build
     set -euo pipefail
     echo "Building examples..."
     mkdir -p target/examples
-    for file in examples/*.cem; do
-        if [ -f "$file" ]; then
-            name=$(basename "$file" .cem)
-            echo "  Compiling $name..."
-            target/release/cem compile "$file" -o "target/examples/$name"
-        fi
+    # Find all .cem files in examples subdirectories
+    find examples -name "*.cem" -type f | while read -r file; do
+        # Get category and name (e.g., examples/stdlib/list-operations.cem -> stdlib-list-operations)
+        category=$(dirname "$file" | sed 's|examples/||')
+        name=$(basename "$file" .cem)
+        output_name="${category}-${name}"
+        echo "  Compiling $category/$name..."
+        target/release/cem compile "$file" -o "target/examples/$output_name"
     done
     echo "✅ Examples built in target/examples/"
     ls -lh target/examples/
