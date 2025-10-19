@@ -1,0 +1,18 @@
+# Test string operations
+
+: main ( -- )
+  "Testing string operations..." write_line
+
+  # Test string_length
+  "hello" string_length int-to-string write_line  # Should print "5"
+  "" string_length int-to-string write_line       # Should print "0"
+
+  # Test string_concat
+  "hello" " " string_concat "world" string_concat write_line  # Should print "hello world"
+  "foo" "bar" string_concat write_line                        # Should print "foobar"
+
+  # Test string_equal
+  "test" "test" string_equal bool-to-string write_line       # Should print "true"
+  "hello" "world" string_equal bool-to-string write_line     # Should print "false"
+
+  "All string tests passed!" write_line ;
