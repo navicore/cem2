@@ -93,9 +93,6 @@ pub unsafe extern "C" fn exit_op(stack: *mut StackCell) -> ! {
 
     // Validate exit code is in valid range (0-255 for Unix compatibility)
     if !(0..=255).contains(&exit_code) {
-        // unsafe {
-        //     crate::runtime_error(c"exit_op: exit code must be in range 0-255".as_ptr())
-        // }
         unsafe { crate::runtime_error(c"exit_op: exit code must be in range 0-255".as_ptr()) }
     }
 
