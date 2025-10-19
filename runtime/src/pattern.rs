@@ -1,83 +1,93 @@
 /*!
-Pattern Matching Runtime Support - Edition 2024 compliant
+Pattern Matching Runtime Support - C-compatible variant operations
 */
 
-use crate::stack::{CellData, CellType, StackCell};
+use crate::stack::{CellDataUnion, CellType, StackCell, VariantData};
 
+/// Push a variant onto the stack
+///
 /// # Safety
-/// Always safe - allocates new variant.
+/// - `stack` must be a valid StackCell pointer or null
+/// - `field_data` must be either:
+///   - null (for 0-field variants like None)
+///   - a valid StackCell pointer (for 1-field variants like Some)
+///
+/// The variant takes ownership of `field_data` if provided.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn alloc_variant(tag: u32, field_count: usize) -> *mut StackCell {
+pub unsafe extern "C" fn push_variant(
+    stack: *mut StackCell,
+    tag: u32,
+    field_data: *mut StackCell,
+) -> *mut StackCell {
     let cell = Box::new(StackCell {
         cell_type: CellType::Variant,
-        data: CellData::Variant {
-            tag,
-            fields: Vec::with_capacity(field_count),
+        _padding: 0,
+        data: CellDataUnion {
+            variant: VariantData {
+                tag,
+                _padding: 0,
+                data: field_data, // null for 0-field, pointer for 1-field
+            },
         },
-        next: None,
+        next: std::ptr::null_mut(),
+    });
+
+    unsafe { StackCell::push(stack, cell) }
+}
+
+/// Allocate a new empty StackCell
+///
+/// # Safety
+/// Always safe - allocates a new cell with uninitialized data.
+/// The caller is responsible for initializing the cell before use.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn alloc_cell() -> *mut StackCell {
+    let cell = Box::new(StackCell {
+        cell_type: CellType::Int, // Placeholder type
+        _padding: 0,
+        data: CellDataUnion { int_val: 0 }, // Placeholder data
+        next: std::ptr::null_mut(),
     });
 
     Box::into_raw(cell)
 }
 
+/// Get variant tag
+///
 /// # Safety
-/// Both pointers must be valid StackCell pointers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn variant_push_field(
-    variant: *mut StackCell,
-    field: *mut StackCell,
-) -> *mut StackCell {
-    assert!(!variant.is_null(), "variant_push_field: null variant");
-    assert!(!field.is_null(), "variant_push_field: null field");
-
-    unsafe {
-        let mut var = Box::from_raw(variant);
-
-        match &mut var.data {
-            CellData::Variant { fields, .. } => {
-                fields.push(Box::from_raw(field));
-            }
-            _ => panic!("variant_push_field: not a variant"),
-        }
-
-        Box::into_raw(var)
-    }
-}
-
-/// # Safety
-/// Variant pointer must be valid.
+/// Variant pointer must be valid and of type Variant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn variant_get_tag(variant: *mut StackCell) -> u32 {
     assert!(!variant.is_null(), "variant_get_tag: null variant");
 
     unsafe {
         let var = &*variant;
-        match &var.data {
-            CellData::Variant { tag, .. } => *tag,
-            _ => panic!("variant_get_tag: not a variant"),
-        }
+        assert_eq!(
+            var.cell_type,
+            CellType::Variant,
+            "variant_get_tag: not a variant"
+        );
+        var.data.variant.tag
     }
 }
 
+/// Get variant field data pointer
+///
 /// # Safety
-/// Consumes the variant, returns fields as stack.
+/// Variant pointer must be valid and of type Variant.
+/// Returns the raw data pointer (may be null for 0-field variants).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn variant_get_fields(variant: *mut StackCell) -> *mut StackCell {
-    assert!(!variant.is_null(), "variant_get_fields: null variant");
+pub unsafe extern "C" fn variant_get_data(variant: *mut StackCell) -> *mut StackCell {
+    assert!(!variant.is_null(), "variant_get_data: null variant");
 
     unsafe {
-        let var = Box::from_raw(variant);
-
-        match var.data {
-            CellData::Variant { fields, .. } => {
-                let mut stack = std::ptr::null_mut();
-                for field in fields.into_iter().rev() {
-                    stack = StackCell::push(stack, field);
-                }
-                stack
-            }
-            _ => panic!("variant_get_fields: not a variant"),
-        }
+        let var = &*variant;
+        assert_eq!(
+            var.cell_type,
+            CellType::Variant,
+            "variant_get_data: not a variant"
+        );
+        var.data.variant.data
     }
 }
 
@@ -89,34 +99,39 @@ mod tests {
     #[test]
     fn test_variant_creation() {
         unsafe {
-            let variant = alloc_variant(0, 1);
+            // Test 1-field variant (Some(42))
             let field = push_int(std::ptr::null_mut(), 42);
-            let variant = variant_push_field(variant, field);
+            let variant = push_variant(std::ptr::null_mut(), 0, field);
 
             let tag = variant_get_tag(variant);
             assert_eq!(tag, 0);
 
-            let fields = variant_get_fields(variant);
-            let (rest, field) = StackCell::pop(fields);
-            assert!(rest.is_null());
+            let data = variant_get_data(variant);
+            assert!(!data.is_null());
 
-            match field.data {
-                CellData::Int(n) => assert_eq!(n, 42),
-                _ => panic!("wrong type"),
-            }
+            let field_cell = &*data;
+            assert_eq!(field_cell.cell_type, CellType::Int);
+            assert_eq!(field_cell.data.int_val, 42);
+
+            // Clean up
+            crate::scheduler::free_stack(variant);
         }
     }
 
     #[test]
     fn test_variant_none() {
         unsafe {
-            let variant = alloc_variant(1, 0);
+            // Test 0-field variant (None)
+            let variant = push_variant(std::ptr::null_mut(), 1, std::ptr::null_mut());
 
             let tag = variant_get_tag(variant);
             assert_eq!(tag, 1);
 
-            let fields = variant_get_fields(variant);
-            assert!(fields.is_null());
+            let data = variant_get_data(variant);
+            assert!(data.is_null());
+
+            // Clean up
+            crate::scheduler::free_stack(variant);
         }
     }
 }

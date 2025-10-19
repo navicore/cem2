@@ -1,8 +1,8 @@
 /*!
-I/O Operations with May Coroutines - Edition 2024 compliant
+I/O Operations with May Coroutines - C-compatible layout
 */
 
-use crate::stack::{CellData, StackCell};
+use crate::stack::{CellDataUnion, CellType, StackCell};
 use std::io::{self, Write};
 
 /// # Safety
@@ -13,13 +13,27 @@ pub unsafe extern "C" fn write_line(stack: *mut StackCell) -> *mut StackCell {
 
     let (rest, cell) = unsafe { StackCell::pop(stack) };
 
-    let s = match cell.data {
-        CellData::String(s) => s,
-        _ => panic!("write_line: expected string on stack"),
+    assert_eq!(
+        cell.cell_type,
+        CellType::String,
+        "write_line: expected string on stack"
+    );
+
+    // Get the C string from the union
+    let c_str_ptr = unsafe { cell.data.string_ptr };
+    let s = unsafe {
+        std::ffi::CStr::from_ptr(c_str_ptr)
+            .to_string_lossy()
+            .into_owned()
     };
 
     println!("{}", s);
     io::stdout().flush().unwrap();
+
+    // Free the string
+    unsafe {
+        let _ = std::ffi::CString::from_raw(c_str_ptr);
+    }
 
     rest
 }
@@ -42,10 +56,16 @@ pub unsafe extern "C" fn read_line(stack: *mut StackCell) -> *mut StackCell {
         }
     }
 
+    // Convert to C string
+    let c_string = std::ffi::CString::new(line).unwrap();
+
     let cell = Box::new(StackCell {
-        cell_type: crate::stack::CellType::String,
-        data: CellData::String(line),
-        next: None,
+        cell_type: CellType::String,
+        _padding: 0,
+        data: CellDataUnion {
+            string_ptr: c_string.into_raw(),
+        },
+        next: std::ptr::null_mut(),
     });
 
     unsafe { StackCell::push(stack, cell) }

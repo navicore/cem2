@@ -1,0 +1,12 @@
+# Simplest possible variant test - just create and drop
+
+type Option(T)
+  | Some(T)
+  | None
+
+: main ( -- )
+  "Creating None..." write_line
+  None drop
+  "Creating Some(42)..." write_line
+  42 Some drop
+  "Done!" write_line ;

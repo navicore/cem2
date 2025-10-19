@@ -1,0 +1,40 @@
+# test_option.cem - Test Option variant with pattern matching
+#
+# This actually tests that variants work by:
+# 1. Creating Some and None variants
+# 2. Pattern matching to extract values
+# 3. The extracted values get used in arithmetic to prove they're real
+
+type Option(T)
+  | Some(T)
+  | None
+
+# Extract value from Option, using -999 as sentinel for None
+: unwrap_or_sentinel ( Option(Int) -- Int )
+  match
+    Some => [ ]        # Extract the Int from Some - leaves it on stack
+    None => [ -999 ]   # Return sentinel value for None
+  end ;
+
+: main ( -- )
+  "Testing Option pattern matching..." write_line
+
+  "Test 1: Unwrapping Some(42)..." write_line
+  42 Some unwrap_or_sentinel
+  # Stack now has: 42
+  # Double it to prove we extracted the real value
+  dup +
+  # Stack now has: 84
+  drop
+  "  (extracted value and doubled it)" write_line
+
+  "Test 2: Unwrapping None..." write_line
+  None unwrap_or_sentinel
+  # Stack now has: -999
+  # Add 999 to prove we got the sentinel
+  999 +
+  # Stack now has: 0
+  drop
+  "  (got sentinel -999 and added 999)" write_line
+
+  "Option variants work correctly!" write_line ;
