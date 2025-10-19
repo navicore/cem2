@@ -22,7 +22,7 @@ build-compiler:
     cargo build --release -p cem-compiler
     @echo "✅ Compiler built: target/release/cem"
 
-# Build all example programs
+# Build all example programs (for demonstration purposes)
 build-examples: build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -30,7 +30,7 @@ build-examples: build
     mkdir -p target/examples
     # Find all .cem files in examples subdirectories
     find examples -name "*.cem" -type f | while read -r file; do
-        # Get category and name (e.g., examples/stdlib/list-operations.cem -> stdlib-list-operations)
+        # Get category and name (e.g., examples/core-builtins/stack-operations.cem -> core-builtins-stack-operations)
         category=$(dirname "$file" | sed 's|examples/||')
         name=$(basename "$file" .cem)
         output_name="${category}-${name}"
@@ -39,6 +39,45 @@ build-examples: build
     done
     echo "✅ Examples built in target/examples/"
     ls -lh target/examples/
+
+# Run integration tests (compile and execute all test files)
+test-integration: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Running integration tests..."
+    mkdir -p target/integration-tests
+
+    failed=0
+    total=0
+
+    # Find all .cem files in tests/integration
+    find tests/integration -name "*.cem" -type f | while read -r file; do
+        total=$((total + 1))
+        category=$(dirname "$file" | sed 's|tests/integration/||')
+        name=$(basename "$file" .cem)
+        test_name="${category}-${name}"
+
+        # Compile the test
+        if target/release/cem compile "$file" -o "target/integration-tests/$test_name" 2>&1 | grep -q "error:"; then
+            echo "  ❌ $test_name (compilation failed)"
+            failed=$((failed + 1))
+        else
+            # Run the test and check exit code
+            if "target/integration-tests/$test_name" > /dev/null 2>&1; then
+                echo "  ✅ $test_name"
+            else
+                echo "  ❌ $test_name (runtime failed)"
+                failed=$((failed + 1))
+            fi
+        fi
+    done
+
+    if [ $failed -eq 0 ]; then
+        echo "✅ All integration tests passed!"
+    else
+        echo "❌ $failed integration test(s) failed"
+        exit 1
+    fi
 
 # Install the compiler to ~/.cargo/bin
 install:
@@ -66,13 +105,14 @@ fmt-check:
 
 # Run all CI checks (same as GitHub Actions!)
 # This is what developers should run before pushing
-ci: fmt-check lint test build-compiler
+ci: fmt-check lint test build-compiler test-integration
     @echo ""
     @echo "✅ All CI checks passed!"
     @echo "   - Code formatting ✓"
     @echo "   - Clippy lints ✓"
     @echo "   - Unit tests ✓"
     @echo "   - Compiler built ✓"
+    @echo "   - Integration tests ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
 
@@ -81,7 +121,7 @@ clean:
     @echo "Cleaning build artifacts..."
     cargo clean
     rm -f *.ll *.o
-    rm -rf target/examples
+    rm -rf target/examples target/integration-tests
     @echo "✅ Clean complete"
 
 # Development: quick format + build
