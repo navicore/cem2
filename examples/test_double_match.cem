@@ -1,0 +1,28 @@
+# Test matching twice on nested Cons
+: main ( -- )
+  "Testing double match..." write_line
+
+  # Create Cons(1, Cons(2, Nil))
+  Nil
+  2 swap Cons  # Cons(2, Nil)
+  1 swap Cons  # Cons(1, Cons(2, Nil))
+
+  # First match - extract head and tail
+  match
+    Cons => [  # ( head=1 tail=Cons(2,Nil) )
+      "First match OK" write_line
+      swap drop  # ( tail ) - drop head, keep tail
+    ]
+    Nil => [ "First was Nil?" write_line ]
+  end
+
+  # Second match on tail
+  match
+    Cons => [  # ( head=2 tail=Nil )
+      "Second match OK" write_line
+      drop drop
+    ]
+    Nil => [ "Second was Nil?" write_line ]
+  end
+
+  "Done!" write_line ;

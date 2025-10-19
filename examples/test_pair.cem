@@ -1,0 +1,21 @@
+# Test a simple pair type
+type Pair
+  | P(Int, Int)
+
+: test-pair ( Pair -- Int )
+  match
+    P => [  # ( first second )
+      drop  # Just return first
+    ]
+  end ;
+
+: main ( -- )
+  "Testing pair..." write_line
+
+  # Create P(1, 2)
+  1 2 P
+
+  test-pair
+  drop
+
+  "Done!" write_line ;

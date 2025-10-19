@@ -207,14 +207,36 @@ impl StackCell {
             }
             CellType::Variant => {
                 // Deep copy the variant and its field data (recursively)
+                // For multi-field variants, data points to a chain of field cells
+                // We need to clone the ENTIRE chain, not just the first field
                 let variant = cell.as_variant().expect("deep_clone: invalid Variant cell");
                 let cloned_data = if variant.data.is_null() {
                     ptr::null_mut()
                 } else {
-                    // Recursively deep-clone the field cell
+                    // Recursively deep-clone the entire field chain
                     unsafe {
-                        let field = &*variant.data;
-                        Box::into_raw(Box::new(Self::deep_clone(field)))
+                        let mut cloned_fields: Vec<*mut StackCell> = Vec::new();
+                        let mut current = variant.data;
+
+                        // Walk the field chain and clone each field
+                        while !current.is_null() {
+                            let field = &*current;
+                            let cloned_field = Box::into_raw(Box::new(Self::deep_clone(field)));
+                            cloned_fields.push(cloned_field);
+                            current = field.next;
+                        }
+
+                        // Link the cloned fields together
+                        for i in 0..cloned_fields.len() {
+                            if i + 1 < cloned_fields.len() {
+                                (*cloned_fields[i]).next = cloned_fields[i + 1];
+                            } else {
+                                (*cloned_fields[i]).next = ptr::null_mut();
+                            }
+                        }
+
+                        // Return first field as data pointer (or null if no fields)
+                        cloned_fields.first().copied().unwrap_or(ptr::null_mut())
                     }
                 };
                 StackCell {

@@ -1,0 +1,17 @@
+# Test list-head
+: main ( -- )
+  "Testing list-head..." write_line
+
+  # Create [1, 2, 3]
+  Nil
+  3 swap Cons
+  2 swap Cons
+  1 swap Cons
+
+  # Get head (should be 1)
+  list-head
+
+  # Should have just 1 on stack
+  drop
+
+  "Done!" write_line ;
