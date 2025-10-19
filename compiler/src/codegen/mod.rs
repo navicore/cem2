@@ -972,11 +972,93 @@ impl CodeGen {
                             Ok(result)
                         }
                         _ => {
-                            // Multi-field variants not yet supported
-                            Err(CodegenError::InternalError(format!(
-                                "Variant constructor {} with {} fields not yet supported (only 0 or 1 fields)",
-                                name, field_count
-                            )))
+                            // Multi-field variants (2+ fields)
+                            // Strategy: Chain the fields as a linked list
+                            // For Cons(head, tail): stack has [tail, head]
+                            // 1. Pop and allocate each field in reverse order
+                            // 2. Link them together: field1.next = field2.next = ... = null
+                            // 3. Create variant with first field as data
+
+                            let mut field_cells = Vec::new();
+                            let mut current_stack = stack.to_string();
+
+                            // Pop and allocate each field
+                            for _i in 0..field_count {
+                                let field_cell = self.fresh_temp();
+                                let dbg = self.dbg_annotation(loc);
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @alloc_cell(){}",
+                                    field_cell, dbg
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                // Copy StackCell from top of stack to new cell
+                                writeln!(
+                                    &mut self.output,
+                                    "  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %{}, ptr align 8 %{}, i64 32, i1 false)",
+                                    field_cell, current_stack
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                field_cells.push(field_cell);
+
+                                // Get rest of stack (pop this field)
+                                let rest_ptr = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                    rest_ptr, current_stack
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                let rest = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = load ptr, ptr %{}",
+                                    rest, rest_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                current_stack = rest.to_string();
+                            }
+
+                            // Link fields together: field[0].next = field[1], field[1].next = field[2], etc.
+                            // Last field gets null
+                            for i in 0..field_count {
+                                let next_ptr = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                    next_ptr, field_cells[i]
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                if i + 1 < field_count {
+                                    // Link to next field
+                                    writeln!(
+                                        &mut self.output,
+                                        "  store ptr %{}, ptr %{}",
+                                        field_cells[i + 1], next_ptr
+                                    )
+                                    .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                                } else {
+                                    // Last field gets null
+                                    writeln!(&mut self.output, "  store ptr null, ptr %{}", next_ptr)
+                                        .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                                }
+                            }
+
+                            // Create variant with first field as data pointer
+                            let result = self.fresh_temp();
+                            let dbg = self.dbg_annotation(loc);
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @push_variant(ptr %{}, i32 {}, ptr %{}){}",
+                                result, current_stack, tag, field_cells[0], dbg
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                            Ok(result)
                         }
                     }
                 } else {
@@ -1200,10 +1282,54 @@ impl CodeGen {
 
                         variant_data.clone()
                     } else {
-                        return Err(CodegenError::InternalError(format!(
-                            "Pattern matching on variant {} with {} fields not yet supported",
-                            name, field_count
-                        )));
+                        // Multi-field variant (e.g., Cons(T, List(T)))
+                        // The fields are already chained: data -> field1 -> field2 -> ... -> null
+                        // We need to find the last field and link it to rest
+                        // Then the stack becomes: field1 field2 ... fieldN rest...
+
+                        // Walk the chain to find the last field
+                        let mut current_field = variant_data.clone();
+                        for i in 0..field_count - 1 {
+                            let next_ptr = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                next_ptr, current_field
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                            let next_field = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = load ptr, ptr %{}",
+                                next_field, next_ptr
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                            // For the last iteration, we'll need to update this field's next pointer
+                            if i == field_count - 2 {
+                                // This is the last field, link it to rest
+                                let last_next_ptr = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = getelementptr inbounds {{ i32, [4 x i8], [16 x i8], ptr }}, ptr %{}, i32 0, i32 3",
+                                    last_next_ptr, next_field
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
+                                writeln!(
+                                    &mut self.output,
+                                    "  store ptr %{}, ptr %{}",
+                                    rest_var, last_next_ptr
+                                )
+                                .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+                            }
+
+                            current_field = next_field;
+                        }
+
+                        // Return the first field as initial stack
+                        variant_data.clone()
                     };
 
                     let (branch_stack, ends_with_musttail) =

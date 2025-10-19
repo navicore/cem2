@@ -75,9 +75,17 @@ fn compile_command(
     let source = fs::read_to_string(input_file)
         .map_err(|e| format!("Failed to read {}: {}", input_file, e))?;
 
+    // Read and prepend stdlib prelude
+    let prelude_path = "stdlib/prelude.cem";
+    let prelude = fs::read_to_string(prelude_path)
+        .map_err(|e| format!("Failed to read stdlib prelude {}: {}", prelude_path, e))?;
+
+    // Combine prelude + user source
+    let combined_source = format!("{}\n\n{}", prelude, source);
+
     // Parse
     println!("Parsing {}...", input_file);
-    let mut parser = Parser::new_with_filename(&source, input_file);
+    let mut parser = Parser::new_with_filename(&combined_source, input_file);
     let program = parser.parse().map_err(|e| format!("Parse error: {}", e))?;
 
     // Build runtime first

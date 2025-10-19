@@ -1,0 +1,22 @@
+# Test simple Cons construction
+
+type List(T)
+  | Cons(T, List(T))
+  | Nil
+
+: main ( -- )
+  "Testing Cons construction..." write_line
+
+  # Create Nil
+  Nil
+
+  # Create Cons(42, Nil)
+  42 swap Cons
+
+  # Match on it to verify
+  match
+    Cons => [ "Got Cons!" write_line swap drop drop ]  # Drop both fields
+    Nil  => [ "Got Nil" write_line ]
+  end
+
+  "Done!" write_line ;

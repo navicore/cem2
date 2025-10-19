@@ -75,6 +75,24 @@ pub unsafe extern "C" fn read_line(stack: *mut StackCell) -> *mut StackCell {
     unsafe { StackCell::push(stack, cell) }
 }
 
+/// Exit the program with a status code
+///
+/// # Safety
+/// Stack must have an Int on top representing the exit code.
+/// This function never returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn exit_op(stack: *mut StackCell) -> ! {
+    assert!(!stack.is_null(), "exit_op: stack is empty");
+
+    let (_rest, cell) = unsafe { StackCell::pop(stack) };
+
+    let exit_code = cell
+        .as_int()
+        .expect("exit_op: expected integer exit code on stack");
+
+    std::process::exit(exit_code as i32);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
