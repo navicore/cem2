@@ -96,6 +96,50 @@ impl Drop for StackCell {
 }
 
 impl StackCell {
+    /// Safe accessor for integer value
+    ///
+    /// # Returns
+    /// `Some(value)` if cell contains an integer, `None` otherwise
+    pub fn as_int(&self) -> Option<i64> {
+        match self.cell_type {
+            CellType::Int => Some(unsafe { self.data.int_val }),
+            _ => None,
+        }
+    }
+
+    /// Safe accessor for boolean value
+    ///
+    /// # Returns
+    /// `Some(value)` if cell contains a boolean, `None` otherwise
+    pub fn as_bool(&self) -> Option<bool> {
+        match self.cell_type {
+            CellType::Bool => Some(unsafe { self.data.bool_val }),
+            _ => None,
+        }
+    }
+
+    /// Safe accessor for string pointer
+    ///
+    /// # Returns
+    /// `Some(ptr)` if cell contains a string, `None` otherwise
+    pub fn as_string_ptr(&self) -> Option<*mut i8> {
+        match self.cell_type {
+            CellType::String => Some(unsafe { self.data.string_ptr }),
+            _ => None,
+        }
+    }
+
+    /// Safe accessor for variant data
+    ///
+    /// # Returns
+    /// `Some(variant_data)` if cell contains a variant, `None` otherwise
+    pub fn as_variant(&self) -> Option<VariantData> {
+        match self.cell_type {
+            CellType::Variant => Some(unsafe { self.data.variant }),
+            _ => None,
+        }
+    }
+
     /// # Safety
     /// Stack pointer must be a valid StackCell or null.
     pub unsafe fn pop(stack: *mut StackCell) -> (*mut StackCell, Box<StackCell>) {
@@ -120,62 +164,70 @@ impl StackCell {
     /// Cell pointer must be valid. This properly deep-copies all heap allocations
     /// to prevent double-free issues.
     pub unsafe fn deep_clone(cell: &StackCell) -> StackCell {
-        unsafe {
-            match cell.cell_type {
-                CellType::Int => StackCell {
+        match cell.cell_type {
+            CellType::Int => {
+                let int_val = cell.as_int().expect("deep_clone: invalid Int cell");
+                StackCell {
                     cell_type: CellType::Int,
                     _padding: 0,
-                    data: CellDataUnion {
-                        int_val: cell.data.int_val,
-                    },
+                    data: CellDataUnion { int_val },
                     next: ptr::null_mut(),
-                },
-                CellType::Bool => StackCell {
+                }
+            }
+            CellType::Bool => {
+                let bool_val = cell.as_bool().expect("deep_clone: invalid Bool cell");
+                StackCell {
                     cell_type: CellType::Bool,
                     _padding: 0,
+                    data: CellDataUnion { bool_val },
+                    next: ptr::null_mut(),
+                }
+            }
+            CellType::String => {
+                // Deep copy the string (should already be valid UTF-8)
+                let original_ptr = cell
+                    .as_string_ptr()
+                    .expect("deep_clone: invalid String cell");
+                let rust_str = unsafe {
+                    std::ffi::CStr::from_ptr(original_ptr)
+                        .to_str()
+                        .expect("deep_clone: string should be valid UTF-8")
+                        .to_owned()
+                };
+                let new_c_str = std::ffi::CString::new(rust_str)
+                    .expect("deep_clone: string should not contain null bytes");
+                StackCell {
+                    cell_type: CellType::String,
+                    _padding: 0,
                     data: CellDataUnion {
-                        bool_val: cell.data.bool_val,
+                        string_ptr: new_c_str.into_raw(),
                     },
                     next: ptr::null_mut(),
-                },
-                CellType::String => {
-                    // Deep copy the string
-                    let original_ptr = cell.data.string_ptr;
-                    let rust_str = std::ffi::CStr::from_ptr(original_ptr)
-                        .to_string_lossy()
-                        .into_owned();
-                    let new_c_str = std::ffi::CString::new(rust_str).unwrap();
-                    StackCell {
-                        cell_type: CellType::String,
-                        _padding: 0,
-                        data: CellDataUnion {
-                            string_ptr: new_c_str.into_raw(),
-                        },
-                        next: ptr::null_mut(),
-                    }
                 }
-                CellType::Variant => {
-                    // Deep copy the variant and its field data (recursively)
-                    let variant = cell.data.variant;
-                    let cloned_data = if variant.data.is_null() {
-                        ptr::null_mut()
-                    } else {
-                        // Recursively deep-clone the field cell
+            }
+            CellType::Variant => {
+                // Deep copy the variant and its field data (recursively)
+                let variant = cell.as_variant().expect("deep_clone: invalid Variant cell");
+                let cloned_data = if variant.data.is_null() {
+                    ptr::null_mut()
+                } else {
+                    // Recursively deep-clone the field cell
+                    unsafe {
                         let field = &*variant.data;
                         Box::into_raw(Box::new(Self::deep_clone(field)))
-                    };
-                    StackCell {
-                        cell_type: CellType::Variant,
-                        _padding: 0,
-                        data: CellDataUnion {
-                            variant: VariantData {
-                                tag: variant.tag,
-                                _padding: 0,
-                                data: cloned_data,
-                            },
-                        },
-                        next: ptr::null_mut(),
                     }
+                };
+                StackCell {
+                    cell_type: CellType::Variant,
+                    _padding: 0,
+                    data: CellDataUnion {
+                        variant: VariantData {
+                            tag: variant.tag,
+                            _padding: 0,
+                            data: cloned_data,
+                        },
+                    },
+                    next: ptr::null_mut(),
                 }
             }
         }
@@ -213,15 +265,23 @@ pub unsafe extern "C" fn push_bool(stack: *mut StackCell, value: bool) -> *mut S
 }
 
 /// # Safety
-/// Caller must ensure both stack and string pointers are valid. String must be null-terminated.
+/// Caller must ensure both stack and string pointers are valid. String must be null-terminated and valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn push_string(stack: *mut StackCell, s: *const i8) -> *mut StackCell {
     assert!(!s.is_null(), "push_string: null string pointer");
 
     // Copy the C string to owned Rust String, then back to C string
-    let rust_string = unsafe { std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned() };
+    // Validate UTF-8 encoding
+    let rust_string = unsafe {
+        match std::ffi::CStr::from_ptr(s).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(_) => crate::runtime_error(c"push_string: string contains invalid UTF-8".as_ptr()),
+        }
+    };
 
-    let c_string = std::ffi::CString::new(rust_string).unwrap();
+    let c_string = std::ffi::CString::new(rust_string).unwrap_or_else(|_| unsafe {
+        crate::runtime_error(c"push_string: string contains null byte".as_ptr())
+    });
     let owned_ptr = c_string.into_raw();
 
     let cell = Box::new(StackCell {
@@ -300,10 +360,10 @@ pub unsafe extern "C" fn add(stack: *mut StackCell) -> *mut StackCell {
     let (rest, b) = unsafe { StackCell::pop(stack) };
     let (rest, a) = unsafe { StackCell::pop(rest) };
 
-    assert_eq!(a.cell_type, CellType::Int, "add: type error");
-    assert_eq!(b.cell_type, CellType::Int, "add: type error");
+    let a_val = a.as_int().expect("add: first operand must be an integer");
+    let b_val = b.as_int().expect("add: second operand must be an integer");
 
-    let result = unsafe { a.data.int_val + b.data.int_val };
+    let result = a_val + b_val;
     unsafe { push_int(rest, result) }
 }
 
@@ -314,10 +374,14 @@ pub unsafe extern "C" fn multiply(stack: *mut StackCell) -> *mut StackCell {
     let (rest, b) = unsafe { StackCell::pop(stack) };
     let (rest, a) = unsafe { StackCell::pop(rest) };
 
-    assert_eq!(a.cell_type, CellType::Int, "multiply: type error");
-    assert_eq!(b.cell_type, CellType::Int, "multiply: type error");
+    let a_val = a
+        .as_int()
+        .expect("multiply: first operand must be an integer");
+    let b_val = b
+        .as_int()
+        .expect("multiply: second operand must be an integer");
 
-    let result = unsafe { a.data.int_val * b.data.int_val };
+    let result = a_val * b_val;
     unsafe { push_int(rest, result) }
 }
 

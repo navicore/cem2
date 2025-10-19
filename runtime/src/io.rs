@@ -13,23 +13,21 @@ pub unsafe extern "C" fn write_line(stack: *mut StackCell) -> *mut StackCell {
 
     let (rest, cell) = unsafe { StackCell::pop(stack) };
 
-    assert_eq!(
-        cell.cell_type,
-        CellType::String,
-        "write_line: expected string on stack"
-    );
+    // Get the C string using safe accessor
+    let c_str_ptr = cell
+        .as_string_ptr()
+        .expect("write_line: expected string on stack");
 
-    // Get the C string from the union
-    let c_str_ptr = unsafe { cell.data.string_ptr };
     assert!(
         !c_str_ptr.is_null(),
         "write_line: unexpected null string pointer"
     );
 
     let s = unsafe {
-        std::ffi::CStr::from_ptr(c_str_ptr)
-            .to_string_lossy()
-            .into_owned()
+        match std::ffi::CStr::from_ptr(c_str_ptr).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(_) => crate::runtime_error(c"write_line: string contains invalid UTF-8".as_ptr()),
+        }
     };
 
     println!("{}", s);
@@ -58,7 +56,12 @@ pub unsafe extern "C" fn read_line(stack: *mut StackCell) -> *mut StackCell {
     }
 
     // Convert to C string
-    let c_string = std::ffi::CString::new(line).expect("read_line: input contains null byte");
+    // Note: Cem strings must not contain null bytes (interior nulls are not supported)
+    let c_string = std::ffi::CString::new(line).unwrap_or_else(|_| unsafe {
+        crate::runtime_error(
+            c"read_line: input contains null byte (not supported in Cem strings)".as_ptr(),
+        )
+    });
 
     let cell = Box::new(StackCell {
         cell_type: CellType::String,
