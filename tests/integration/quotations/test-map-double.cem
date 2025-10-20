@@ -1,0 +1,13 @@
+# Test list-map with simple doubling function
+: double ( Int -- Int )
+  2 * ;
+
+: main ( -- )
+  # Create list [5]
+  Nil 5 swap Cons
+
+  # Map double over it -> [10]
+  [ double ] list-map
+
+  # Extract and print result
+  list-head int-to-string write_line ;

@@ -289,6 +289,12 @@ impl CodeGen {
         writeln!(&mut self.output, "declare ptr @call_quotation(ptr)")
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
+        // Combinator operations
+        writeln!(&mut self.output, "declare ptr @pick(ptr)")
+            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+        writeln!(&mut self.output, "declare ptr @dip(ptr)")
+            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
         // String operations
         writeln!(&mut self.output, "declare ptr @string_length(ptr)")
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;

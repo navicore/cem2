@@ -1,0 +1,47 @@
+Concrete trace for list-map-helper Cons case WITH PICK:
+
+Initial after match:  ( func acc head tail )
+Concrete example:     ( [double] [] 5 [3] )
+
+Step 1: Duplicate func using pick
+  3 pick            # ( func acc head tail func )
+                    # ( [double] [] 5 [3] [double] )
+
+Step 2: Apply func to head
+  swap call         # ( func acc head tail result )
+  # swap:           # ( func acc head func tail )
+  #                 # ( [double] [] 5 [double] [3] )
+  # call:           # ( func acc head result )
+  #                 # ( [double] [] 5 10 )  - WRONG! We lost tail!
+
+OOPS! I need to swap head and tail first!
+
+Let me restart:
+
+Initial: ( func acc head tail )
+Goal:    ( tail func new-acc ) where new-acc = (result::acc)
+
+Step 1: Get func and head together for call
+  ( func acc head tail )
+  3 pick            # ( func acc head tail func )
+  swap              # ( func acc head func tail )
+  rot               # ( func acc func tail head )
+  call              # ( func acc func tail result )
+
+Step 2: Cons result to acc
+  ( func acc func tail result )
+  swap              # ( func acc func result tail )
+  rot               # ( func acc result tail func )
+  drop              # ( func acc result tail )
+  rot               # ( func result tail acc )
+  swap Cons         # ( func result tail new-acc )
+  swap              # ( func result new-acc tail )
+  rot drop          # ( func new-acc tail ) - drop result, it's in acc
+
+Step 3: Arrange for recursion ( tail func new-acc )
+  ( func new-acc tail )
+  rot               # ( new-acc tail func )
+  swap              # ( new-acc func tail )
+  rot               # ( func tail new-acc ) ✓ DONE!
+
+Let me code this properly now.

@@ -1,0 +1,32 @@
+Simpler approach: Make helper take ( list func acc )
+Then Cons receives: ( func acc head tail )
+
+Initial:  ( func acc head tail )
+Goal after processing: ( tail func result::acc )
+
+Trace:
+  ( func acc head tail )
+
+  # Duplicate func
+  rot rot       # ( acc head func tail )
+  over          # ( acc head func tail func ) - NO! over copies TOS
+
+Let me think differently. What operations do I actually have?
+- swap: exchange top 2
+- rot: move 3rd item to top
+- dup: duplicate TOS
+- over: copy 2nd item to top
+- drop: remove TOS
+
+For depth-4 stack ( a b c d ), I can:
+- Get d: already there
+- Get c: swap
+- Get b: rot (brings b to top)
+- Get a: rot rot (brings a to top)
+
+To duplicate item at depth 4:
+  rot rot       # ( c d a b )
+  dup           # ( c d a b b )
+  rot rot       # ( a b b c d )
+
+YES! That's it!
