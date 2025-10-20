@@ -1,35 +1,53 @@
 # Multi-Field Variant Codegen Bug - Systematic Debugging Plan
 
-## Status: ACTIVE INVESTIGATION
+## Status: ACTIVE INVESTIGATION - ROOT CAUSE ISOLATED
 
 ## The Bug
 
-Multi-field variants (e.g., `Cons(T, List(T))`) constructed with function return values create malformed variants that fail pattern matching.
+**CORRECTED UNDERSTANDING:** Multi-field variants (e.g., `Cons(T, List(T))`) constructed **inside match branches** with a **specific stack shuffling pattern** create malformed variants that fail pattern matching when passed to recursive functions.
 
-### Reproduction
+### Minimal Reproduction
 
 ```cem
-: double ( Int -- Int )
-  2 * ;
+: test-exact-shuffle ( List(Int) List(Int) -- List(Int) )
+  swap
+  match
+    Cons => [
+      # Stack: ( acc head tail )
+      # Do the exact shuffling from list-reverse-helper
+      rot swap              # ( head acc tail )
+      rot                   # ( acc tail head )
+      rot                   # ( tail head acc )
+      swap Cons             # ( tail Cons(head, acc) )
+      swap drop  # Drop tail, keep the Cons
+    ]
+    Nil => [ ]
+  end ;
 
 : main ( -- )
-  5 double      # Returns 10 on stack
-  Nil swap Cons # Create Cons(10, Nil)
+  Nil 10 swap Cons  # Simple literal Cons
+  Nil               # accumulator
 
-  list-reverse  # FAILS: "match: non-exhaustive pattern"
+  test-exact-shuffle  # Creates new Cons with shuffled values
+
+  list-reverse      # FAILS: "match: non-exhaustive pattern"
   drop ;
 ```
+
+**Test file:** `tmp/test-exact-shuffle.cem`
 
 ### What Works vs. What Fails
 
 | Test Case | Result | Notes |
 |-----------|--------|-------|
-| `Some(10)` (literal) | ✅ Works | Single-field, literal value |
-| `Some(double(5))` (function) | ✅ Works | Single-field, function result |
-| `Cons(10, Nil)` (literal) | ✅ Works | Multi-field, literal values |
-| `Cons(double(5), Nil)` (function) | ❌ FAILS | Multi-field, function result |
+| `Cons(10, Nil)` anywhere | ✅ Works | Literal values |
+| `Cons(double(5), Nil)` in main | ✅ Works | Function result, outside match |
+| `Cons(double(5), Nil)` passed to simple function | ✅ Works | Function result works in general |
+| `Cons(10, Nil)` in match branch | ✅ Works | Literal in match branch |
+| `Cons(head, Nil)` in match (simple shuffle) | ✅ Works | Extracted value with simple shuffle |
+| `swap Cons` in match after `rot swap rot rot swap` | ❌ FAILS | Complex shuffling pattern |
 
-**Hypothesis:** The memcpy-based construction of multi-field variants corrupts something when the source StackCell comes from a function call.
+**Corrected Hypothesis:** The issue is NOT about function calls vs. literals. It's about constructing Cons **inside a match branch** after a **specific sequence of stack operations** (`rot swap rot rot swap`). The Cons appears valid immediately after creation but becomes malformed when passed to functions that pattern match on it.
 
 ## What We Know
 
@@ -203,3 +221,73 @@ If we can't fix this in reasonable time:
 - Single-field variants work fine
 - Literals work fine
 - Issue is specifically in codegen for multi-field construction with dynamic values
+
+### 2025-10-20 - Root Cause Isolation
+
+**Major Breakthrough:** The bug is NOT about function results vs. literals!
+
+#### Discovery Process
+
+1. **Initial hypothesis was wrong**: Thought it was about function results (e.g., `Cons(double(5), Nil)`)
+2. **Created systematic tests** (see tmp/*.cem files):
+   - `test-cons-reverse-literal.cem` - ✅ Literal Cons with list-reverse works
+   - `test-cons-reverse-direct.cem` - ❌ Cons from function result fails with list-reverse
+   - But: `test-cons-pass-through.cem` - ✅ Same Cons works through simple function
+3. **Added debug output to list-reverse-helper**:
+   - First match on original Cons: ✅ SUCCESS
+   - Second match on newly-created Cons: ❌ FAILURE
+4. **Isolated the pattern**: Created `test-exact-shuffle.cem` that replicates ONLY the shuffling pattern:
+   ```cem
+   rot swap rot rot swap Cons
+   ```
+   This fails even with literal initial values!
+
+#### Key Findings
+
+1. **Cons constructed outside match branches** - Always works (literals or function results)
+2. **Cons constructed inside match branches with simple shuffling** - Works
+3. **Cons constructed inside match branches after `rot swap rot rot swap`** - FAILS
+
+#### The Smoking Gun
+
+File: `tmp/test-exact-shuffle.cem`
+```cem
+: test-exact-shuffle ( List(Int) List(Int) -- List(Int) )
+  swap
+  match
+    Cons => [
+      rot swap rot rot swap Cons  # This creates malformed Cons!
+      swap drop
+    ]
+    Nil => [ ]
+  end ;
+```
+
+When this Cons is passed to `list-reverse`, it fails with "non-exhaustive pattern" even though:
+- The Cons variant tag is correct (0)
+- It can be inspected immediately after creation
+- The IR shows identical Cons construction code
+
+#### Current Hypothesis
+
+The issue is likely in how the compiler manages stack cell lifetimes and linking **within match branch context**. After multiple rot/swap operations:
+1. The `next` pointers in the stack cells might be pointing to wrong locations
+2. The variant field linking might be using stale stack cell addresses
+3. Or there's a subtle interaction between match extraction's `copy_cell` and subsequent shuffling
+
+#### Test Files Created
+
+All in `tmp/` directory:
+- `test-literal-in-match.cem` - ✅ Literal Cons in match works
+- `test-extracted-value-in-match.cem` - ✅ Extracted value + literal Nil works
+- `test-extracted-acc-in-match.cem` - ✅ Literal + extracted acc works
+- `test-both-extracted-in-match.cem` - ✅ Both extracted (simple shuffle) works
+- `test-exact-shuffle.cem` - ❌ Complex shuffle pattern fails
+- `debug-reverse.cem` - Shows failure happens on second match, not first
+
+#### Next Steps
+
+1. **Examine LLVM IR deeply**: Compare `test-both-extracted-in-match.ll` (works) vs `test-exact-shuffle.ll` (fails)
+2. **Look for stack pointer issues**: After multiple rot/swap, are we copying from the right stack locations?
+3. **Check variant field linking**: When we link the two Cons fields, are we using the correct cell addresses?
+4. **Instrument the runtime**: Add assertions in `push_variant` to validate field cell integrity
