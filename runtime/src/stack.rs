@@ -1176,4 +1176,58 @@ mod tests {
             assert_eq!(second.as_int().unwrap(), 30);
         }
     }
+
+    // Helper function for dip tests - adds 1 to top of stack
+    unsafe extern "C" fn test_quotation_add_one(stack: *mut StackCell) -> *mut StackCell {
+        unsafe {
+            let (rest, val) = StackCell::pop(stack);
+            let new_val = val.as_int().unwrap() + 1;
+            push_int(rest, new_val)
+        }
+    }
+
+    // Helper function for dip tests - doubles top of stack
+    unsafe extern "C" fn test_quotation_double(stack: *mut StackCell) -> *mut StackCell {
+        unsafe {
+            let (rest, val) = StackCell::pop(stack);
+            let new_val = val.as_int().unwrap() * 2;
+            push_int(rest, new_val)
+        }
+    }
+
+    #[test]
+    fn test_dip() {
+        unsafe {
+            // Test: ( 10 20 [add1] dip ) -> ( 11 20 )
+            // The quotation should operate on 10 while 20 is hidden
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 10);
+            let stack = push_int(stack, 20);
+            let stack = push_quotation(stack, test_quotation_add_one as *mut ());
+            let stack = dip(stack);
+
+            let (rest, top) = StackCell::pop(stack);
+            assert_eq!(top.as_int().unwrap(), 20, "Hidden value should be on top");
+            let (rest, second) = StackCell::pop(rest);
+            assert_eq!(second.as_int().unwrap(), 11, "10 + 1 should equal 11");
+            assert!(rest.is_null());
+
+            // Test: ( 5 100 [double] dip ) -> ( 10 100 )
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 100);
+            let stack = push_quotation(stack, test_quotation_double as *mut ());
+            let stack = dip(stack);
+
+            let (rest, top) = StackCell::pop(stack);
+            assert_eq!(
+                top.as_int().unwrap(),
+                100,
+                "Hidden value should be preserved"
+            );
+            let (rest, second) = StackCell::pop(rest);
+            assert_eq!(second.as_int().unwrap(), 10, "5 * 2 should equal 10");
+            assert!(rest.is_null());
+        }
+    }
 }

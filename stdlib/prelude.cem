@@ -143,23 +143,23 @@ type Option(T)
     Cons => [       # ( func acc head tail )
       # Goal: Apply func to head, cons result to acc, recurse with (tail func new-acc)
 
-      # Step 1: Duplicate func and prepare for call
-      # Need to get: ( func acc tail head func ) so we can call func on head
+      # Step 1: Call func on head
+      # Current: ( func acc head tail )
       swap            # ( func acc tail head )
       3 pick          # ( func acc tail head func )
-      swap call       # ( func acc tail result )
+      # Stack: ( func acc tail head func ) - perfect for calling!
+      call            # ( func acc tail result )
 
       # Step 2: Cons result onto accumulator
       # Current: ( func acc tail result )
       rot             # ( func tail result acc )
       swap Cons       # ( func tail result::acc )
 
-      # Step 3: Arrange for recursion ( tail func new-acc )
+      # Step 3: Arrange for recursion
       # Current: ( func tail new-acc )
-      swap            # ( func new-acc tail )
-      rot             # ( new-acc tail func )
-      swap            # ( new-acc func tail )
-      rot             # ( func tail new-acc )
+      # Need:    ( tail func new-acc ) to match signature
+      rot             # ( tail new-acc func )
+      swap            # ( tail func new-acc )
 
       list-map-helper
     ]

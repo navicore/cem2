@@ -203,6 +203,38 @@ impl Environment {
             },
         );
 
+        // pick: ( ... Int -- ... A )
+        // Type signature is polymorphic - copies nth element to top
+        // For simplicity, we type it conservatively as working on any depth
+        self.add_word(
+            "pick".to_string(),
+            Effect {
+                inputs: StackType::empty()
+                    .push(Type::Var("A".to_string()))
+                    .push(Type::Int),
+                outputs: StackType::empty()
+                    .push(Type::Var("A".to_string()))
+                    .push(Type::Var("A".to_string())),
+            },
+        );
+
+        // dip: ( A [B -- C] -- C A )
+        // Calls quotation while hiding top value
+        self.add_word(
+            "dip".to_string(),
+            Effect {
+                inputs: StackType::empty()
+                    .push(Type::Var("A".to_string()))
+                    .push(Type::Quotation(Box::new(Effect {
+                        inputs: StackType::empty().push(Type::Var("B".to_string())),
+                        outputs: StackType::empty().push(Type::Var("C".to_string())),
+                    }))),
+                outputs: StackType::empty()
+                    .push(Type::Var("C".to_string()))
+                    .push(Type::Var("A".to_string())),
+            },
+        );
+
         // Arithmetic operations
         // +: ( Int Int -- Int )
         self.add_word(
