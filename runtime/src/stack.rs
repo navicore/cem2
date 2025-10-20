@@ -503,6 +503,98 @@ pub unsafe extern "C" fn tuck(stack: *mut StackCell) -> *mut StackCell {
     unsafe { StackCell::push(rest, b_clone) }
 }
 
+/// Pick: Copy the nth element from the stack to the top
+/// Stack effect: ( ... n -- ... val )
+/// where n=0 is equivalent to dup, n=1 is equivalent to over, etc.
+///
+/// Examples:
+/// - ( A B C 0 pick ) -> ( A B C C )
+/// - ( A B C 1 pick ) -> ( A B C B )
+/// - ( A B C 2 pick ) -> ( A B C A )
+///
+/// # Safety
+/// - Stack must not be empty (needs at least the depth parameter)
+/// - Stack must have at least n+1 elements (n plus the depth value itself)
+/// - Depth n must be a non-negative integer
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pick(stack: *mut StackCell) -> *mut StackCell {
+    assert!(!stack.is_null(), "pick: stack is empty");
+
+    unsafe {
+        // Pop the depth parameter
+        let (rest_stack, depth_cell) = StackCell::pop(stack);
+        let depth = depth_cell.as_int().expect("pick: depth must be an integer");
+
+        assert!(depth >= 0, "pick: depth must be non-negative");
+
+        // Walk down the stack to find the element at depth n
+        let mut current = rest_stack;
+        for _ in 0..depth {
+            assert!(
+                !current.is_null(),
+                "pick: stack depth {} is too small",
+                depth
+            );
+            current = (*current).next;
+        }
+
+        assert!(
+            !current.is_null(),
+            "pick: stack depth {} is too small",
+            depth
+        );
+
+        // Deep clone the element at depth n
+        let picked = Box::new(StackCell::deep_clone(&*current));
+
+        // Push the cloned element onto the stack
+        StackCell::push(rest_stack, picked)
+    }
+}
+
+/// Dip: Call a quotation while temporarily hiding the top stack value
+/// Stack effect: ( x y [x -- x'] -- x' y )
+///
+/// This is a fundamental combinator that allows a quotation to operate on
+/// values below the top of stack.
+///
+/// Example:
+/// - ( 10 20 [1 +] dip ) -> ( 11 20 )
+///   The quotation [1 +] operates on 10, while 20 is preserved
+///
+/// # Safety
+/// - Stack must have at least 2 elements (the value to hide and the quotation)
+/// - Top of stack must be a quotation
+/// - The quotation must have correct signature fn(*mut StackCell) -> *mut StackCell
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dip(stack: *mut StackCell) -> *mut StackCell {
+    assert!(!stack.is_null(), "dip: stack is empty");
+
+    unsafe {
+        // Pop the quotation
+        let (rest_stack, quot_cell) = StackCell::pop(stack);
+        assert!(
+            quot_cell.cell_type == CellType::Quotation,
+            "dip: top of stack must be a quotation"
+        );
+
+        // Pop the value to hide
+        assert!(!rest_stack.is_null(), "dip: stack too small");
+        let (hidden_stack, hidden_value) = StackCell::pop(rest_stack);
+
+        // Extract and call the quotation on the stack without the hidden value
+        let func_ptr = quot_cell.data.quotation_ptr;
+
+        // SAFETY: Same safety rationale as call_quotation - the compiler
+        // guarantees this is a valid function pointer with the correct signature
+        let func: fn(*mut StackCell) -> *mut StackCell = std::mem::transmute(func_ptr);
+        let result_stack = func(hidden_stack);
+
+        // Push the hidden value back on top
+        StackCell::push(result_stack, hidden_value)
+    }
+}
+
 /// # Safety
 /// Stack must have 2 integers.
 #[unsafe(no_mangle)]
@@ -1031,6 +1123,111 @@ mod tests {
             let (rest, result) = StackCell::pop(stack);
             assert!(rest.is_null());
             assert!(!result.as_bool().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_pick() {
+        unsafe {
+            // Test pick 0 (equivalent to dup)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 10);
+            let stack = push_int(stack, 20);
+            let stack = push_int(stack, 30);
+            let stack = push_int(stack, 0); // pick depth
+            let stack = pick(stack);
+
+            let (rest, top) = StackCell::pop(stack);
+            assert_eq!(top.as_int().unwrap(), 30);
+            let (rest, second) = StackCell::pop(rest);
+            assert_eq!(second.as_int().unwrap(), 30);
+            let (rest, third) = StackCell::pop(rest);
+            assert_eq!(third.as_int().unwrap(), 20);
+            let (rest, fourth) = StackCell::pop(rest);
+            assert_eq!(fourth.as_int().unwrap(), 10);
+            assert!(rest.is_null());
+
+            // Test pick 1 (equivalent to over)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 10);
+            let stack = push_int(stack, 20);
+            let stack = push_int(stack, 30);
+            let stack = push_int(stack, 1); // pick depth
+            let stack = pick(stack);
+
+            let (rest, top) = StackCell::pop(stack);
+            assert_eq!(top.as_int().unwrap(), 20);
+            let (rest, second) = StackCell::pop(rest);
+            assert_eq!(second.as_int().unwrap(), 30);
+            let (_rest, third) = StackCell::pop(rest);
+            assert_eq!(third.as_int().unwrap(), 20);
+
+            // Test pick 2 (get third element)
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 10);
+            let stack = push_int(stack, 20);
+            let stack = push_int(stack, 30);
+            let stack = push_int(stack, 2); // pick depth
+            let stack = pick(stack);
+
+            let (rest, top) = StackCell::pop(stack);
+            assert_eq!(top.as_int().unwrap(), 10);
+            let (_rest, second) = StackCell::pop(rest);
+            assert_eq!(second.as_int().unwrap(), 30);
+        }
+    }
+
+    // Helper function for dip tests - adds 1 to top of stack
+    unsafe extern "C" fn test_quotation_add_one(stack: *mut StackCell) -> *mut StackCell {
+        unsafe {
+            let (rest, val) = StackCell::pop(stack);
+            let new_val = val.as_int().unwrap() + 1;
+            push_int(rest, new_val)
+        }
+    }
+
+    // Helper function for dip tests - doubles top of stack
+    unsafe extern "C" fn test_quotation_double(stack: *mut StackCell) -> *mut StackCell {
+        unsafe {
+            let (rest, val) = StackCell::pop(stack);
+            let new_val = val.as_int().unwrap() * 2;
+            push_int(rest, new_val)
+        }
+    }
+
+    #[test]
+    fn test_dip() {
+        unsafe {
+            // Test: ( 10 20 [add1] dip ) -> ( 11 20 )
+            // The quotation should operate on 10 while 20 is hidden
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 10);
+            let stack = push_int(stack, 20);
+            let stack = push_quotation(stack, test_quotation_add_one as *mut ());
+            let stack = dip(stack);
+
+            let (rest, top) = StackCell::pop(stack);
+            assert_eq!(top.as_int().unwrap(), 20, "Hidden value should be on top");
+            let (rest, second) = StackCell::pop(rest);
+            assert_eq!(second.as_int().unwrap(), 11, "10 + 1 should equal 11");
+            assert!(rest.is_null());
+
+            // Test: ( 5 100 [double] dip ) -> ( 10 100 )
+            let stack = ptr::null_mut();
+            let stack = push_int(stack, 5);
+            let stack = push_int(stack, 100);
+            let stack = push_quotation(stack, test_quotation_double as *mut ());
+            let stack = dip(stack);
+
+            let (rest, top) = StackCell::pop(stack);
+            assert_eq!(
+                top.as_int().unwrap(),
+                100,
+                "Hidden value should be preserved"
+            );
+            let (rest, second) = StackCell::pop(rest);
+            assert_eq!(second.as_int().unwrap(), 10, "5 * 2 should equal 10");
+            assert!(rest.is_null());
         }
     }
 }

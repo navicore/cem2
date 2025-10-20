@@ -135,6 +135,42 @@ type Option(T)
 # Higher-Order List Operations
 # ==============================================================================
 
-# TODO: Implement list-map, list-filter, list-fold-left
-# These require complex stack shuffling and are being developed separately.
-# See GitHub issue for details on the implementation challenges.
+# list-map-helper: Recursive helper for list-map with accumulator
+# Stack signature: ( List(T) [T -- U] List(U) -- List(U) )
+: list-map-helper ( List(T) [T -- U] List(U) -- List(U) )
+  rot               # ( [T--U] List(U) List(T) )
+  match
+    Cons => [       # ( func acc head tail )
+      # Goal: Apply func to head, cons result to acc, recurse with (tail func new-acc)
+
+      # Step 1: Call func on head
+      # Current: ( func acc head tail )
+      swap            # ( func acc tail head )
+      3 pick          # ( func acc tail head func )
+      # Stack: ( func acc tail head func ) - perfect for calling!
+      call            # ( func acc tail result )
+
+      # Step 2: Cons result onto accumulator
+      # Current: ( func acc tail result )
+      rot             # ( func tail result acc )
+      swap Cons       # ( func tail result::acc )
+
+      # Step 3: Arrange for recursion
+      # Current: ( func tail new-acc )
+      # Need:    ( tail func new-acc ) to match signature
+      rot             # ( tail new-acc func )
+      swap            # ( tail func new-acc )
+
+      list-map-helper
+    ]
+    Nil => [        # ( func acc )
+      swap drop       # ( acc )
+      list-reverse    # Reverse to restore proper order
+    ]
+  end ;
+
+# list-map: Transform each element of a list using a quotation
+# ( List(T) [T -- U] -- List(U) )
+: list-map ( List(T) [T -- U] -- List(U) )
+  Nil               # ( list func Nil )
+  list-map-helper ;
