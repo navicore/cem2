@@ -1,0 +1,36 @@
+# Test the exact shuffle pattern from list-reverse-helper
+# Without any variants - just pure stack operations
+
+: main ( -- )
+  "Testing core shuffle pattern: rot swap rot rot swap" write_line
+
+  # Simulate the stack state after match extraction
+  # Stack: ( acc head tail ) = ( 10 20 30 )
+  10 20 30
+
+  "Initial stack: 10 20 30" write_line
+
+  rot    # ( 20 30 10 )
+  "After rot: should be 20 30 10" write_line
+  dup int-to-string write_line
+
+  swap   # ( 20 10 30 )
+  "After swap: should be 20 10 30" write_line
+  dup int-to-string write_line
+
+  rot    # ( 10 30 20 )
+  "After rot: should be 10 30 20" write_line
+  dup int-to-string write_line
+
+  rot    # ( 30 20 10 )
+  "After rot: should be 30 20 10" write_line
+  dup int-to-string write_line
+
+  swap   # ( 30 10 20 )
+  "After swap: should be 30 10 20" write_line
+  dup int-to-string write_line
+
+  "Final stack (top to bottom): 30 10 20" write_line
+  drop drop drop
+
+  "Test completed successfully!" write_line ;

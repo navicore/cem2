@@ -768,6 +768,24 @@ pub unsafe extern "C" fn copy_cell(cell: *mut StackCell) -> *mut StackCell {
     }
 }
 
+/// Skip N elements on the stack and return pointer to the rest
+///
+/// # Safety
+/// Stack must have at least N elements
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn skip_n(stack: *mut StackCell, n: i64) -> *mut StackCell {
+    assert!(n >= 0, "skip_n: n must be non-negative");
+
+    unsafe {
+        let mut current = stack;
+        for _ in 0..n {
+            assert!(!current.is_null(), "skip_n: stack too small");
+            current = (*current).next;
+        }
+        current
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

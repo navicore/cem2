@@ -340,6 +340,8 @@ impl CodeGen {
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
         writeln!(&mut self.output, "declare ptr @copy_cell(ptr)")
             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+        writeln!(&mut self.output, "declare ptr @skip_n(ptr, i64)")
+            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
 
         // LLVM intrinsics
         writeln!(
@@ -1112,12 +1114,22 @@ impl CodeGen {
                             }
 
                             // Create variant with first field as data pointer
+                            // Use skip_n to correctly compute the rest stack after consuming field values
+                            // This works correctly even after complex stack shuffling operations
+                            let rest_stack = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @skip_n(ptr %{}, i64 {})",
+                                rest_stack, stack, field_count
+                            )
+                            .map_err(|e| CodegenError::InternalError(e.to_string()))?;
+
                             let result = self.fresh_temp();
                             let dbg = self.dbg_annotation(loc);
                             writeln!(
                                 &mut self.output,
                                 "  %{} = call ptr @push_variant(ptr %{}, i32 {}, ptr %{}){}",
-                                result, current_stack, tag, field_cells[0], dbg
+                                result, rest_stack, tag, field_cells[0], dbg
                             )
                             .map_err(|e| CodegenError::InternalError(e.to_string()))?;
                             Ok(result)

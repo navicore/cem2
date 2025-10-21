@@ -1,0 +1,106 @@
+# Core Stack Operations Test Suite
+# These tests validate the fundamental concatenative operations
+
+# Helper to verify top of stack equals expected value
+: assert-top ( Int Int -- )
+  = not [ "FAIL!" write_line 1 exit ] [ "✓" write_line ] if ;
+
+# Test 1: drop
+: test-drop ( -- )
+  "Testing drop..." write_line
+  1 2 3 drop  # Should be: 1 2
+  2 assert-top
+  drop 1 assert-top
+  drop ;
+
+# Test 2: dup
+: test-dup ( -- )
+  "Testing dup..." write_line
+  42 dup      # Should be: 42 42
+  42 assert-top
+  drop 42 assert-top
+  drop ;
+
+# Test 3: swap
+: test-swap ( -- )
+  "Testing swap..." write_line
+  1 2 swap    # Should be: 2 1
+  1 assert-top
+  drop 2 assert-top
+  drop ;
+
+# Test 4: over
+: test-over ( -- )
+  "Testing over..." write_line
+  1 2 over    # Should be: 1 2 1
+  1 assert-top
+  drop 2 assert-top
+  drop 1 assert-top
+  drop ;
+
+# Test 5: rot
+: test-rot ( -- )
+  "Testing rot..." write_line
+  1 2 3 rot   # Should be: 2 3 1
+  1 assert-top
+  drop 3 assert-top
+  drop 2 assert-top
+  drop ;
+
+# Test 6: Complex shuffle pattern from list-reverse
+: test-shuffle-pattern ( -- )
+  "Testing rot swap rot rot swap pattern..." write_line
+  # Start: 10 20 30 (representing acc head tail)
+  10 20 30
+  rot         # 20 30 10
+  swap        # 20 10 30
+  rot         # 10 30 20
+  rot         # 30 20 10
+  swap        # 30 10 20
+  # Final: 30 10 20 (tail acc head)
+  20 assert-top
+  drop 10 assert-top
+  drop 30 assert-top
+  drop ;
+
+# Test 7: pick operations
+: test-pick ( -- )
+  "Testing pick..." write_line
+  1 2 3 4     # Stack: 1 2 3 4
+  0 pick      # Copy top (4)
+  4 assert-top
+  drop
+  1 pick      # Copy second (3)
+  3 assert-top
+  drop
+  2 pick      # Copy third (2)
+  2 assert-top
+  # Clean up: 1 2 3 4 2
+  drop drop drop drop drop ;
+
+# Test 8: Verify stack integrity after shuffles
+: test-stack-integrity ( -- )
+  "Testing stack integrity..." write_line
+  # Build a stack of known values
+  1 2 3 4 5
+  # Do complex shuffling
+  rot swap rot
+  # Should be: 1 2 4 3 5
+  5 assert-top
+  drop 3 assert-top
+  drop 4 assert-top
+  drop 2 assert-top
+  drop 1 assert-top
+  drop ;
+
+: main ( -- )
+  "=== Core Operations Test Suite ===" write_line
+  test-drop
+  test-dup
+  test-swap
+  test-over
+  test-rot
+  test-shuffle-pattern
+  test-pick
+  test-stack-integrity
+  "=== All tests passed! ===" write_line ;
