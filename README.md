@@ -1,5 +1,9 @@
 # Cem2
 
+INACTIVE.  Use https://github.com/navicore/cem3
+
+--------------
+
 *Pronounced "seam"*
 
 A minimal, safe, concatenative programming language with linear types, pattern matching, and Erlang-style green threads.
